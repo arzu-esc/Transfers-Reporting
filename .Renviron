@@ -1,0 +1,7 @@
+# Network drive location of csv file
+SHAREPOINT_FILE_PATH_SAMPLE_CSV= "3 - Services/AEMO MSATS Transfers data/Data/JUR_DATA_CSV_VIC_202507.csv"
+
+# SharePoint site URL for intelligence and analysis
+SHAREPOINT_SITE_URL= "https://escvic.sharepoint.com/teams/IntelligenceandAnalysisESC"
+
+SHAREPOINT_DATA_FOLDER= "3 - Services/AEMO MSATS Transfers Data/Data"
