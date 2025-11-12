@@ -2,5 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
-01_data/
-01_data/
+02_data/JUR_DATA_CSV_VIC*
+02_data/transfers_raw.rds
+02_data/snapshots/JUR_DATA_CSV_VIC*
+00_mass_upload_scripts/data
+04_outputs/missing_ids

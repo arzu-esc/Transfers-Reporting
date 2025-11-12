@@ -4,4 +4,15 @@ SHAREPOINT_FILE_PATH_SAMPLE_CSV= "3 - Services/AEMO MSATS Transfers data/Data/JU
 # SharePoint site URL for intelligence and analysis
 SHAREPOINT_SITE_URL= "https://escvic.sharepoint.com/teams/IntelligenceandAnalysisESC"
 
+SHAREPOINT_AEMO_FOLDER= "3 - Services/AEMO MSATS Transfers Data"
+
 SHAREPOINT_DATA_FOLDER= "3 - Services/AEMO MSATS Transfers Data/Data"
+
+SHAREPOINT_IMPORT_FOLDER= "5 - Data Repository/AEMO Transfers/Imported"
+
+# ---- SQL (Azure AD Interactive) ----
+SQL_DRIVER=ODBC Driver 17 for SQL Server
+SQL_SERVER="esc-dev-ssdw-01.database.windows.net"
+SQL_DATABASE=esc-dev-poc-01
+SQL_AUTH=ActiveDirectoryInteractive       
+SQL_UID=arzu.khanna@esc.vic.gov.au  
