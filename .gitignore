@@ -2,8 +2,14 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# Ignore specific data files/folders
 02_data/JUR_DATA_CSV_VIC*
 02_data/transfers_raw.rds
 02_data/snapshots/JUR_DATA_CSV_VIC*
 00_mass_upload_scripts/data
 04_outputs/missing_ids
+
+# Keep folder structure
+!02_data/.gitkeep
+!04_output/.gitkeep
