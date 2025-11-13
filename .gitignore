@@ -9,7 +9,8 @@
 02_data/snapshots/JUR_DATA_CSV_VIC*
 00_mass_upload_scripts/data
 04_outputs/missing_ids
+transfers_report.html
 
 # Keep folder structure
 !02_data/.gitkeep
-!04_output/.gitkeep
+!04_outputs/.gitkeep

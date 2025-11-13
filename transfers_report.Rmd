@@ -395,32 +395,32 @@ retailer_names <- transfers %>%
   arrange(FRMP_Retailer_name) %>%
   pull(FRMP_Retailer_name)
 
-# Aggregate by retailer name and time period
+# Aggregate by retailer name and time period (NO SIZE GROUPING)
 
-# Monthly by retailer and size
+# Monthly by retailer
 monthly_by_retailer <- transfers %>%
   filter(stat_shortcut == "M57A", !is.na(FRMP_Retailer_name)) %>%
-  group_by(FRMP_Retailer_name, YearMonth, stat_date = floor_date(stat_date, "month"), FRMP_Retailer_size) %>%
+  group_by(FRMP_Retailer_name, YearMonth, stat_date = floor_date(stat_date, "month")) %>%
   summarise(
     transfers = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   arrange(FRMP_Retailer_name, stat_date)
 
-# Quarterly by retailer and size
+# Quarterly by retailer
 quarterly_by_retailer <- transfers %>%
   filter(stat_shortcut == "M57A", !is.na(FRMP_Retailer_name)) %>%
-  group_by(FRMP_Retailer_name, FinYearQuarter, FRMP_Retailer_size) %>%
+  group_by(FRMP_Retailer_name, FinYearQuarter) %>%
   summarise(
     transfers = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   arrange(FRMP_Retailer_name, FinYearQuarter)
 
-# Financial year by retailer and size
+# Financial year by retailer
 finyear_by_retailer <- transfers %>%
   filter(stat_shortcut == "M57A", !is.na(FRMP_Retailer_name)) %>%
-  group_by(FRMP_Retailer_name, FinYear, FRMP_Retailer_size) %>%
+  group_by(FRMP_Retailer_name, FinYear) %>%
   summarise(
     transfers = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
@@ -435,101 +435,89 @@ first_retailer <- retailer_names[1]
 
 p_with_filter <- plot_ly()
 
-# For each retailer, add FY + Quarterly + Monthly traces (12 traces per retailer)
+# For each retailer, add FY + Quarterly + Monthly traces (3 traces per retailer)
 for (retailer in retailer_names) {
   is_visible <- (retailer == first_retailer)
   
-  # Financial Year traces (4 sizes)
-  for (size in retailer_sizes) {
-    data_subset <- finyear_by_retailer %>% 
-      filter(FRMP_Retailer_name == retailer, FRMP_Retailer_size == size)
-    
-    p_with_filter <- p_with_filter %>%
-      add_trace(
-        data = data_subset,
-        x = ~FinYear,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = is_visible,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "FY %{x}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
-      )
-  }
+  # Financial Year trace
+  data_subset <- finyear_by_retailer %>% 
+    filter(FRMP_Retailer_name == retailer)
   
-  # Quarterly traces (4 sizes, hidden initially)
-  for (size in retailer_sizes) {
-    data_subset <- quarterly_by_retailer %>% 
-      filter(FRMP_Retailer_name == retailer, FRMP_Retailer_size == size)
-    
-    p_with_filter <- p_with_filter %>%
-      add_trace(
-        data = data_subset,
-        x = ~FinYearQuarter,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = FALSE,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "%{x}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
+  p_with_filter <- p_with_filter %>%
+    add_trace(
+      data = data_subset,
+      x = ~FinYear,
+      y = ~transfers,
+      type = "scatter",
+      mode = "lines+markers",
+      line = list(color = colour_palette["blue_main"], width = 2),
+      marker = list(color = colour_palette["blue_main"], size = 6),
+      name = "Transfers",
+      showlegend = FALSE,  # No legend needed
+      visible = is_visible,
+      hovertemplate = paste0(
+        "FY %{x}<br>",
+        "Transfers: %{y:,.0f}<br>",
+        "<extra></extra>"
       )
-  }
+    )
   
-  # Monthly traces (4 sizes, hidden initially)
-  for (size in retailer_sizes) {
-    data_subset <- monthly_by_retailer %>% 
-      filter(FRMP_Retailer_name == retailer, FRMP_Retailer_size == size)
-    
-    p_with_filter <- p_with_filter %>%
-      add_trace(
-        data = data_subset,
-        x = ~stat_date,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = FALSE,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "%{x|%B %Y}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
+  # Quarterly trace (hidden initially)
+  data_subset <- quarterly_by_retailer %>% 
+    filter(FRMP_Retailer_name == retailer)
+  
+  p_with_filter <- p_with_filter %>%
+    add_trace(
+      data = data_subset,
+      x = ~FinYearQuarter,
+      y = ~transfers,
+      type = "scatter",
+      mode = "lines+markers",
+      line = list(color = colour_palette["blue_main"], width = 2),
+      marker = list(color = colour_palette["blue_main"], size = 6),
+      name = "Transfers",
+      showlegend = FALSE,
+      visible = FALSE,
+      hovertemplate = paste0(
+        "%{x}<br>",
+        "Transfers: %{y:,.0f}<br>",
+        "<extra></extra>"
       )
-  }
+    )
+  
+  # Monthly trace (hidden initially)
+  data_subset <- monthly_by_retailer %>% 
+    filter(FRMP_Retailer_name == retailer)
+  
+  p_with_filter <- p_with_filter %>%
+    add_trace(
+      data = data_subset,
+      x = ~stat_date,
+      y = ~transfers,
+      type = "scatter",
+      mode = "lines+markers",
+      line = list(color = colour_palette["blue_main"], width = 2),
+      marker = list(color = colour_palette["blue_main"], size = 6),
+      name = "Transfers",
+      showlegend = FALSE,
+      visible = FALSE,
+      hovertemplate = paste0(
+        "%{x|%B %Y}<br>",
+        "Transfers: %{y:,.0f}<br>",
+        "<extra></extra>"
+      )
+    )
 }
 
 # Create dropdown buttons for retailer selection
-# Each retailer has 12 traces (4 sizes × 3 time periods)
+# Each retailer has 3 traces (3 time periods)
 retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
   retailer <- retailer_names[i]
   
-  # Calculate which traces to show (first 4 for FY view)
-  start_idx <- (i - 1) * 12 + 1
-  visible_vector <- rep(FALSE, length(retailer_names) * 12)
-  visible_vector[start_idx:(start_idx + 3)] <- TRUE  # Show FY traces
+  # Calculate which traces to show (first trace for FY view)
+  start_idx <- (i - 1) * 3 + 1
+  visible_vector <- rep(FALSE, length(retailer_names) * 3)
+  visible_vector[start_idx] <- TRUE  # Show FY trace
   
   list(
     label = retailer,
@@ -542,18 +530,16 @@ retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
 })
 
 # Create time period buttons
-# These work relative to current selected retailer
 time_buttons <- list(
   list(
     label = "Financial Year",
     method = "restyle",
     args = list(
       "visible",
-      lapply(1:(length(retailer_names) * 12), function(i) {
-        retailer_idx <- ceiling(i / 12)
-        trace_in_retailer <- ((i - 1) %% 12) + 1
-        # Show if: this retailer is visible AND this is a FY trace (1-4)
-        trace_in_retailer <= 4
+      lapply(1:(length(retailer_names) * 3), function(i) {
+        trace_in_retailer <- ((i - 1) %% 3) + 1
+        # Show if: this is a FY trace (1)
+        trace_in_retailer == 1
       })
     )
   ),
@@ -562,10 +548,10 @@ time_buttons <- list(
     method = "restyle",
     args = list(
       "visible",
-      lapply(1:(length(retailer_names) * 12), function(i) {
-        trace_in_retailer <- ((i - 1) %% 12) + 1
-        # Show if: this is a Quarterly trace (5-8)
-        trace_in_retailer >= 5 && trace_in_retailer <= 8
+      lapply(1:(length(retailer_names) * 3), function(i) {
+        trace_in_retailer <- ((i - 1) %% 3) + 1
+        # Show if: this is a Quarterly trace (2)
+        trace_in_retailer == 2
       })
     )
   ),
@@ -574,10 +560,10 @@ time_buttons <- list(
     method = "restyle",
     args = list(
       "visible",
-      lapply(1:(length(retailer_names) * 12), function(i) {
-        trace_in_retailer <- ((i - 1) %% 12) + 1
-        # Show if: this is a Monthly trace (9-12)
-        trace_in_retailer >= 9
+      lapply(1:(length(retailer_names) * 3), function(i) {
+        trace_in_retailer <- ((i - 1) %% 3) + 1
+        # Show if: this is a Monthly trace (3)
+        trace_in_retailer == 3
       })
     )
   )
@@ -586,11 +572,11 @@ time_buttons <- list(
 p_with_filter <- p_with_filter %>%
   layout(
     title = list(
-      text = paste("Transfer Trends -", first_retailer),
+      text = "Transfer Trends",
       font = font_title
     ),
     xaxis = list(
-      title = "Financial Year",
+      title = "",
       font = font_axis,
       showgrid = TRUE,
       gridcolor = colour_palette["gray_4"]
@@ -603,12 +589,8 @@ p_with_filter <- p_with_filter %>%
       separatethousands = TRUE
     ),
     
-    legend = list(
-      orientation = "h",
-      x = 0,
-      y = -0.15,
-      font = font_axis
-    ),
+    # No legend needed
+    showlegend = FALSE,
     
     margin = list(t = 140),
     
@@ -635,7 +617,7 @@ p_with_filter <- p_with_filter %>%
         xanchor = "left",
         yanchor = "top",
         x = 0,
-        y = 1.18,
+        y = 1.15,
         bgcolor = colour_palette["gray_4"],
         bordercolor = colour_palette["gray_2"],
         borderwidth = 1,
@@ -906,36 +888,6 @@ p_type_drilldown <- p_type_drilldown %>%
   )
 
 p_type_drilldown
-```
-
-### Key Insights
-
-```{r insights-2}
-# Most common transfer type
-top_type <- finyear_by_type %>%
-  group_by(transfer_type) %>%
-  summarise(total = sum(transfers)) %>%
-  arrange(desc(total)) %>%
-  slice(1)
-
-# Latest month breakdown
-latest_month_types <- monthly_by_type %>%
-  filter(stat_date == max(stat_date)) %>%
-  arrange(desc(transfers))
-
-cat(paste0(
-  "- Most common transfer type overall: ", top_type$transfer_type, 
-  " (", format(top_type$total, big.mark = ","), " total transfers)\n",
-  "- Latest month breakdown:\n"
-))
-
-for (i in 1:nrow(latest_month_types)) {
-  cat(paste0(
-    "  - ", latest_month_types$transfer_type[i], ": ",
-    format(latest_month_types$transfers[i], big.mark = ","), 
-    " (", round(latest_month_types$transfers[i] / sum(latest_month_types$transfers) * 100, 1), "%)\n"
-  ))
-}
 ```
 
 ---
@@ -1222,27 +1174,6 @@ p_type_size <- p_type_size %>%
   )
 
 p_type_size
-```
-
-### Key Insights
-
-```{r insights-3}
-# Breakdown by type and size for latest FY
-for (ttype in transfer_types) {
-  type_data <- finyear_type_size %>%
-    filter(FinYear == max(FinYear), transfer_type == ttype) %>%
-    arrange(desc(transfers))
-  
-  if (nrow(type_data) > 0) {
-    cat(paste0("\n", ttype, " (FY ", max(finyear_type_size$FinYear), "):\n"))
-    for (i in 1:nrow(type_data)) {
-      cat(paste0(
-        "  - ", type_data$FRMP_Retailer_size[i], ": ",
-        format(type_data$transfers[i], big.mark = ","), " transfers\n"
-      ))
-    }
-  }
-}
 ```
 
 ---
