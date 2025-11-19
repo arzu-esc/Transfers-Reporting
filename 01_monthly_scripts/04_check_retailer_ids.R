@@ -11,16 +11,6 @@
 
 # ==============================================================================
 
-suppressPackageStartupMessages({
-  library(readr)
-  library(dplyr)
-  library(janitor)
-  library(fs)
-  library(cli)
-  library(DBI)
-  library(odbc)
-})
-
 # ---------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------
@@ -41,12 +31,12 @@ if (!nzchar(sql_server_name) || !nzchar(sql_database_name)) {
 # 1. Find newest monthly CSV
 # ---------------------------------------------------------------------
 if (!dir_exists(data_dir)) {
-  stop("Folder not found: ", data_dir, ". Run 00_get_data.R first.")
+  stop("Folder not found: ", data_dir, ". Run 02_get_data.R first.")
 }
 
 csv_files <- dir_ls(data_dir, glob = "*.csv", recurse = FALSE)
 if (!length(csv_files)) {
-  stop("No CSV files found in ", data_dir, ". Run 00_get_data.R first.")
+  stop("No CSV files found in ", data_dir, ". Run 02_get_data.R first.")
 }
 
 csv_info <- file_info(csv_files) |> arrange(desc(modification_time))
@@ -103,7 +93,7 @@ fail_rows <- list()
 # 4. M71 check
 # ---------------------------------------------------------------------
 m71_rows <- df |>
-  filter(stat_shortcut == "M71") |>
+  filter(stat_shortcut == "M71", nmiclasscode == "SMALL") |>
   mutate(frmp = trimws(frmp))
 
 if (nrow(m71_rows)) {
@@ -132,7 +122,7 @@ if (nrow(m71_rows)) {
 # ---------------------------------------------------------------------
 
 m57a_rows <- df |>
-  filter(stat_shortcut == "M57A")
+  filter(stat_shortcut == "M57A", nmiclasscode == "SMALL")
 
 has_newfrmp <- "newfrmp" %in% names(m57a_rows)
 
