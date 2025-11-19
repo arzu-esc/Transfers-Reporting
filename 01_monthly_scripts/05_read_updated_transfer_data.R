@@ -1,3 +1,12 @@
+# ==============================================================================
+
+# Script: 05_read_updated_transfer_data.R
+# Purpose: Read updated transfer data from SQL view into R
+# Author: Arzu Khanna
+# Last updated: 2025-11-18
+
+# ==============================================================================
+
 con <- DBI::dbConnect(
   odbc::odbc(),
   Driver         = "ODBC Driver 17 for SQL Server",

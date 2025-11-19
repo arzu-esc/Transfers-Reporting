@@ -1,68 +1,50 @@
 # ==============================================================================
 
-# Name: 01_check_retailer_ids.R
-# Author: Arzu Khanna
-# Date: 2025-11-03
+# Script: 04_check_retailer_ids.R
+# Purpose: Validate FRMP and NEWFRMP IDs in the latest monthly AEMO CSV
 # Description:
-#
-# Validate NEW monthly AEMO CSV in 02_data/ against SQL lookup tables:
+#   Validate NEW monthly AEMO CSV in 02_data/ against SQL lookup tables:
 #   - M71: FRMP must exist in dbo.aemo_participantid_lookup.participant_id
 #   - M57A: FRMP and NEWFRMP must exist in dbo.aemo_corpid_lookup.corp_id
+# Author: Arzu Khanna
+# Last updated: 2025-11-18
 
 # ==============================================================================
 
 # ---------------------------------------------------------------------
-# CONFIG
+# 1. Config settings
 # ---------------------------------------------------------------------
-data_dir   <- "02_data"
+
 output_dir <- "04_outputs"
 
-driver            <- Sys.getenv("SQL_DRIVER", unset = "ODBC Driver 17 for SQL Server")
-sql_server_name   <- Sys.getenv("SQL_SERVER")
-sql_database_name <- Sys.getenv("SQL_DATABASE")
-user_id           <- Sys.getenv("SQL_UID", "")
-auth              <- Sys.getenv("SQL_AUTH", "ActiveDirectoryInteractive")
-
-if (!nzchar(sql_server_name) || !nzchar(sql_database_name)) {
-  stop("SQL_SERVER or SQL_DATABASE not set in .Renviron")
+if (!exists("new_data_file", envir = .GlobalEnv)) {
+  stop("new_data_file not found — run 02_get_new_month_data.R first.")
 }
 
-# ---------------------------------------------------------------------
-# 1. Find newest monthly CSV
-# ---------------------------------------------------------------------
-if (!dir_exists(data_dir)) {
-  stop("Folder not found: ", data_dir, ". Run 02_get_data.R first.")
-}
-
-csv_files <- dir_ls(data_dir, glob = "*.csv", recurse = FALSE)
-if (!length(csv_files)) {
-  stop("No CSV files found in ", data_dir, ". Run 02_get_data.R first.")
-}
-
-csv_info <- file_info(csv_files) |> arrange(desc(modification_time))
-csv_path <- csv_info$path[1]
+csv_path <- get("new_data_file", envir = .GlobalEnv)
 cli::cli_alert_info("Validating monthly file: {csv_path}")
 
 # ---------------------------------------------------------------------
 # 2. Read CSV
 # ---------------------------------------------------------------------
-df <- readr::read_csv(
+
+df <- read_csv(
   csv_path,
   col_types = cols(.default = col_character()),
   show_col_types = FALSE
-) |>
-  janitor::clean_names()
+) %>%
+  clean_names()
 
-needed_min  <- c("stat_shortcut", "frmp")
-missing_min <- setdiff(needed_min, names(df))
-if (length(missing_min)) {
-  stop("Incoming CSV is missing expected column(s): ",
-       paste(missing_min, collapse = ", "))
+if (!"stat_shortcut" %in% names(df) || !"frmp" %in% names(df)) {
+  stop("Incoming CSV is missing required columns (stat_shortcut, frmp).")
 }
 
 # ---------------------------------------------------------------------
 # 3. Lookups from SQL
 # ---------------------------------------------------------------------
+
+cli::cli_alert_info("Connecting to SQL and reading lookup tables…")
+
 con <- DBI::dbConnect(
   odbc::odbc(),
   Driver                 = driver,
@@ -72,11 +54,9 @@ con <- DBI::dbConnect(
   Authentication         = auth,
   Encrypt                = "yes",
   TrustServerCertificate = "yes",
-  Timeout                = 15
+  Timeout                = 0
 )
 on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
-
-cli::cli_alert_info("Fetching lookup tables from SQL...")
 
 part_lu <- DBI::dbReadTable(con, DBI::Id(schema = "dbo", table = "aemo_participantid_lookup")) |>
   mutate(participant_id = trimws(as.character(participant_id)))
@@ -86,11 +66,11 @@ corp_lu <- DBI::dbReadTable(con, DBI::Id(schema = "dbo", table = "aemo_corpid_lo
 
 cli::cli_alert_success("Got participant ({nrow(part_lu)}) and corp ({nrow(corp_lu)}) lookups.")
 
-# We'll collect all fails here
+# Collect failures
 fail_rows <- list()
 
 # ---------------------------------------------------------------------
-# 4. M71 check
+# 4. Validate M71: FRMP must exist in participant lookup
 # ---------------------------------------------------------------------
 m71_rows <- df |>
   filter(stat_shortcut == "M71", nmiclasscode == "SMALL") |>
@@ -118,7 +98,7 @@ if (nrow(m71_rows)) {
 }
 
 # ---------------------------------------------------------------------
-# 5. M57A check (FRMP + NEWFRMP)
+# . Validate M57A: FRMP + NEWFRMP must exist in corp lookup
 # ---------------------------------------------------------------------
 
 m57a_rows <- df |>
@@ -178,7 +158,7 @@ if (nrow(m57a_rows)) {
 }
 
 # ---------------------------------------------------------------------
-# 6. Final outcome
+# 6. Final result: output + error if failures exist
 # ---------------------------------------------------------------------
 if (length(fail_rows)) {
   # bind all problems

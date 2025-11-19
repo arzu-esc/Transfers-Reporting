@@ -30,18 +30,23 @@ suppressPackageStartupMessages({
   library(crosstalk)
   library(htmltools)
   library(tidyr)
+  library(kableExtra)
 })
 ```
 
 ```{r colors-fonts}
 # Color palette
 colour_palette <- c(
-  blue_main  = "#236092",
+  blue_main  = "#236192",
   red_main   = "#d62728",
-  gray_1     = "#333333",
-  gray_2     = "#666666",
-  gray_3     = "#999999",
-  gray_4     = "#cccccc"
+  gray_1     = "#183028",
+  gray_2     = "#75787b",
+  gray_3     = "#ACAEB0",
+  gray_4     = "#C8C9CA",
+  blue_1     = "#7BA0BE",
+  blue_2     = "#A7C0D3",
+  orange     = "#F4B966",
+  yellow     = "#FEE97C"
 )
 
 # Font settings
@@ -50,9 +55,12 @@ font_title <- list(family = "Arial", size = 16, color = colour_palette["gray_1"]
 font_axis <- list(family = "Arial", size = 11, color = colour_palette["gray_2"])
 ```
 
+
 ```{r load-data}
-# Query the view
 transfers_raw <- readRDS("02_data/transfers_raw.rds")
+```
+
+```{r prep-data}
 
 # Convert dates and add derived columns
 transfers <- transfers_raw %>%
@@ -63,12 +71,12 @@ transfers <- transfers_raw %>%
   ) %>%
   filter(FinYear != "2017-18" & FinYear != "2018-19" & FinYear != "2019-20")
 
-# Get latest month info for reporting
-latest_month <- transfers %>%
-  filter(is_latest_month) %>%
-  pull(stat_date) %>%
+latest_month <- transfers$YearMonth %>%
   max() %>%
+  paste0("-01") %>%
+  as.Date() %>%
   format("%B %Y")
+  
 
 # Summary stats
 total_records <- nrow(transfers)
@@ -81,11 +89,9 @@ date_range <- paste(min(transfers$stat_date), "to", max(transfers$stat_date))
 
 **Report Date:** `r format(Sys.Date(), "%d %B %Y")`  
 
-**Data Coverage:** `r date_range` (Note: FY2025-26 only includes data for July - September 2025)
+**Data Coverage:** `r date_range` (Note: FY2025-26 only includes data for July - `r latest_month`)
 
 **Total Records:** `r format(total_records, big.mark = ",")`  
-
-**Latest Month:** `r latest_month`
 
 ---
 
@@ -436,8 +442,9 @@ first_retailer <- retailer_names[1]
 p_with_filter <- plot_ly()
 
 # For each retailer, add FY + Quarterly + Monthly traces (3 traces per retailer)
-for (retailer in retailer_names) {
-  is_visible <- (retailer == first_retailer)
+for (i in seq_along(retailer_names)) {
+  retailer <- retailer_names[i]
+  is_first <- (i == 1)
   
   # Financial Year trace
   data_subset <- finyear_by_retailer %>% 
@@ -453,8 +460,8 @@ for (retailer in retailer_names) {
       line = list(color = colour_palette["blue_main"], width = 2),
       marker = list(color = colour_palette["blue_main"], size = 6),
       name = "Transfers",
-      showlegend = FALSE,  # No legend needed
-      visible = is_visible,
+      showlegend = FALSE,
+      visible = is_first,
       hovertemplate = paste0(
         "FY %{x}<br>",
         "Transfers: %{y:,.0f}<br>",
@@ -509,77 +516,115 @@ for (retailer in retailer_names) {
     )
 }
 
-# Create dropdown buttons for retailer selection
-# Each retailer has 3 traces (3 time periods)
-retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
+# Create THREE sets of retailer buttons - one for each time period
+# This way the dropdown will maintain the time period context
+
+# Group 1: All retailers - Financial Year
+fy_retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
   retailer <- retailer_names[i]
-  
-  # Calculate which traces to show (first trace for FY view)
-  start_idx <- (i - 1) * 3 + 1
   visible_vector <- rep(FALSE, length(retailer_names) * 3)
+  start_idx <- (i - 1) * 3 + 1
   visible_vector[start_idx] <- TRUE  # Show FY trace
   
   list(
-    label = retailer,
+    label = paste0("FY: ", retailer),
     method = "update",
     args = list(
       list(visible = visible_vector),
-      list(title = paste("Transfer Trends -", retailer))
+      list(
+        title = paste("Transfer Trends -", retailer, "(Financial Year)"),
+        xaxis = list(
+          title = "Financial Year",
+          font = font_axis,
+          showgrid = TRUE,
+          gridcolor = colour_palette["gray_4"],
+          type = "category"
+        )
+      )
     )
   )
 })
 
-# Create time period buttons
-time_buttons <- list(
+# Group 2: All retailers - Quarterly
+q_retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
+  retailer <- retailer_names[i]
+  visible_vector <- rep(FALSE, length(retailer_names) * 3)
+  start_idx <- (i - 1) * 3 + 2
+  visible_vector[start_idx] <- TRUE  # Show Quarterly trace
+  
   list(
-    label = "Financial Year",
-    method = "restyle",
+    label = paste0("Q: ", retailer),
+    method = "update",
     args = list(
-      "visible",
-      lapply(1:(length(retailer_names) * 3), function(i) {
-        trace_in_retailer <- ((i - 1) %% 3) + 1
-        # Show if: this is a FY trace (1)
-        trace_in_retailer == 1
-      })
-    )
-  ),
-  list(
-    label = "Quarterly",
-    method = "restyle",
-    args = list(
-      "visible",
-      lapply(1:(length(retailer_names) * 3), function(i) {
-        trace_in_retailer <- ((i - 1) %% 3) + 1
-        # Show if: this is a Quarterly trace (2)
-        trace_in_retailer == 2
-      })
-    )
-  ),
-  list(
-    label = "Monthly",
-    method = "restyle",
-    args = list(
-      "visible",
-      lapply(1:(length(retailer_names) * 3), function(i) {
-        trace_in_retailer <- ((i - 1) %% 3) + 1
-        # Show if: this is a Monthly trace (3)
-        trace_in_retailer == 3
-      })
+      list(visible = visible_vector),
+      list(
+        title = paste("Transfer Trends -", retailer, "(Quarterly)"),
+        xaxis = list(
+          title = "Quarter",
+          font = font_axis,
+          showgrid = TRUE,
+          gridcolor = colour_palette["gray_4"],
+          type = "category"
+        )
+      )
     )
   )
+})
+
+# Group 3: All retailers - Monthly
+m_retailer_buttons <- lapply(seq_along(retailer_names), function(i) {
+  retailer <- retailer_names[i]
+  visible_vector <- rep(FALSE, length(retailer_names) * 3)
+  start_idx <- (i - 1) * 3 + 3
+  visible_vector[start_idx] <- TRUE  # Show Monthly trace
+  
+  list(
+    label = paste0("M: ", retailer),
+    method = "update",
+    args = list(
+      list(visible = visible_vector),
+      list(
+        title = paste("Transfer Trends -", retailer, "(Monthly)"),
+        xaxis = list(
+          title = "Month",
+          font = font_axis,
+          showgrid = TRUE,
+          gridcolor = colour_palette["gray_4"],
+          type = "date",
+          tickangle = 0
+        )
+      )
+    )
+  )
+})
+
+# Add section dividers
+divider_fy <- list(label = "─── FINANCIAL YEAR ───", method = "skip")
+divider_q <- list(label = "─── QUARTERLY ───", method = "skip")
+divider_m <- list(label = "─── MONTHLY ───", method = "skip")
+
+# Combine all buttons with dividers
+all_retailer_buttons <- c(
+  list(divider_fy),
+  fy_retailer_buttons,
+  list(divider_q),
+  q_retailer_buttons,
+  list(divider_m),
+  m_retailer_buttons
 )
 
 p_with_filter <- p_with_filter %>%
   layout(
     title = list(
-      text = "Transfer Trends",
+      text = paste("Transfer Trends -", first_retailer, "(Financial Year)"),
       font = font_title
     ),
     xaxis = list(
-      title = "",
+      title = "Financial Year",
       font = font_axis,
       showgrid = TRUE,
-      gridcolor = colour_palette["gray_4"]
+      gridcolor = colour_palette["gray_4"],
+      type = "category"
     ),
     yaxis = list(
       title = "Number of Transfers",
@@ -589,31 +634,14 @@ p_with_filter <- p_with_filter %>%
       separatethousands = TRUE
     ),
     
-    # No legend needed
     showlegend = FALSE,
+    margin = list(t = 100),
     
-    margin = list(t = 140),
-    
-    # Add both dropdowns and buttons
+    # Single dropdown with all retailers grouped by time period
     updatemenus = list(
-      # Retailer dropdown
       list(
         type = "dropdown",
         direction = "down",
-        xanchor = "left",
-        yanchor = "top",
-        x = 0,
-        y = 1.25,
-        bgcolor = colour_palette["gray_4"],
-        bordercolor = colour_palette["gray_2"],
-        borderwidth = 1,
-        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = retailer_buttons
-      ),
-      # Time period buttons
-      list(
-        type = "buttons",
-        direction = "right",
         xanchor = "left",
         yanchor = "top",
         x = 0,
@@ -622,7 +650,8 @@ p_with_filter <- p_with_filter %>%
         bordercolor = colour_palette["gray_2"],
         borderwidth = 1,
         font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = time_buttons
+        buttons = all_retailer_buttons,
+        active = 1  # Start with first retailer FY (after divider)
       )
     ),
     
@@ -728,10 +757,12 @@ for (ttype in transfer_types) {
       legendgroup = ttype,
       showlegend = TRUE,
       visible = TRUE,
+      text = ~transfers,
       hovertemplate = paste0(
         "<b>", ttype, "</b><br>",
         "FY %{x}<br>",
-        "Transfers: %{y:,.0f}<br>",
+        "Percentage: %{y:.1f}%<br>",
+        "Transfers: %{text:,.0f}<br>",
         "<extra></extra>"
       )
     )
@@ -754,10 +785,12 @@ for (ttype in transfer_types) {
       legendgroup = ttype,
       showlegend = TRUE,
       visible = FALSE,
+      text = ~transfers,
       hovertemplate = paste0(
         "<b>", ttype, "</b><br>",
         "%{x}<br>",
-        "Transfers: %{y:,.0f}<br>",
+        "Percentage: %{y:.1f}%<br>",
+        "Transfers: %{text:,.0f}<br>",
         "<extra></extra>"
       )
     )
@@ -780,10 +813,12 @@ for (ttype in transfer_types) {
       legendgroup = ttype,
       showlegend = TRUE,
       visible = FALSE,
+      text = ~transfers,
       hovertemplate = paste0(
         "<b>", ttype, "</b><br>",
         "%{x|%B %Y}<br>",
-        "Transfers: %{y:,.0f}<br>",
+        "Percentage: %{y:.1f}%<br>",
+        "Transfers: %{text:,.0f}<br>",
         "<extra></extra>"
       )
     )
@@ -805,11 +840,12 @@ p_type_drilldown <- p_type_drilldown %>%
       gridcolor = colour_palette["gray_4"]
     ),
     yaxis = list(
-      title = "Number of Transfers",
+      title = "Percentage of Transfers (%)",
       font = font_axis,
       showgrid = TRUE,
       gridcolor = colour_palette["gray_4"],
-      separatethousands = TRUE
+      ticksuffix = "%",
+      tickformat = ".0f"
     ),
     
     legend = list(
@@ -856,8 +892,6 @@ p_type_drilldown <- p_type_drilldown %>%
                   title = "Quarter",
                   type = "category",
                   tickmode = "array",
-                  tickvals = q1_q3_ticks,
-                  ticktext = q1_q3_ticks,
                   tickangle = 45
                 )
               )
@@ -892,421 +926,192 @@ p_type_drilldown
 
 ---
 
-# 3. Transfer Type by Retailer Size
+## 2.2 Top 5 Move-In Retailers
 
-## 3.1 Transfer Type by Retailer Size (Interactive Filter)
+```{r move-in-prep}
+# Get the most recent date and calculate 12 months ago
+max_date <- max(transfers$stat_date, na.rm = TRUE)
+months_ago_12 <- max_date %m-% months(12)
 
-```{r chart-3-prep}
-# Aggregate by transfer type AND retailer size
+# Filter for Move-in transfers in last 12 months
+# These are transfers where customers are moving TO a new location
+# We look at NEWFRMP_Retailer_name (destination retailer)
+move_in_data <- transfers %>%
+  filter(
+    stat_shortcut == "M57A",
+    transfer_type == "Move-in",
+    stat_date >= months_ago_12,
+    stat_date <= max_date,
+    !is.na(NEWFRMP_Retailer_name)
+  ) %>%
+  mutate(year_month = floor_date(stat_date, "month"))
 
-# Monthly by type and size
-monthly_type_size <- transfers %>%
-  filter(stat_shortcut == "M57A", !is.na(transfer_type)) %>%
-  group_by(YearMonth, stat_date = floor_date(stat_date, "month"), transfer_type, FRMP_Retailer_size) %>%
+# Get top 10 retailers by total move-in transfers over last 12 months
+top_10_move_in <- move_in_data %>%
+  group_by(NEWFRMP_Retailer_name) %>%
+  summarise(total_move_ins = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(total_move_ins)) %>%
+  slice(1:5) %>%
+  pull(NEWFRMP_Retailer_name)
+
+# Monthly move-in data for top 10 retailers
+monthly_move_in <- move_in_data %>%
+  filter(NEWFRMP_Retailer_name %in% top_10_move_in) %>%
+  group_by(year_month, NEWFRMP_Retailer_name) %>%
   summarise(
-    transfers = sum(stat_value, na.rm = TRUE),
+    move_ins = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  arrange(stat_date, transfer_type, FRMP_Retailer_size)
+  arrange(year_month, NEWFRMP_Retailer_name)
 
-# Quarterly by type and size
-quarterly_type_size <- transfers %>%
-  filter(stat_shortcut == "M57A", !is.na(transfer_type)) %>%
-  group_by(FinYearQuarter, transfer_type, FRMP_Retailer_size) %>%
-  summarise(
-    transfers = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYearQuarter, transfer_type, FRMP_Retailer_size)
-
-# Financial year by type and size
-finyear_type_size <- transfers %>%
-  filter(stat_shortcut == "M57A", !is.na(transfer_type)) %>%
-  group_by(FinYear, transfer_type, FRMP_Retailer_size) %>%
-  summarise(
-    transfers = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYear, transfer_type, FRMP_Retailer_size)
+# Assign colors to top 10 retailers (cycle through palette)
+move_in_colors <- setNames(
+  rep(c(colour_palette["blue_main"], colour_palette["red_main"], 
+        colour_palette["gray_1"], colour_palette["gray_2"], 
+        colour_palette["gray_3"]), length.out = length(top_10_move_in)),
+  top_10_move_in
+)
 ```
 
-```{r chart-3-interactive}
-# Create chart with transfer type dropdown
-p_type_size <- plot_ly()
+```{r move-in-chart}
+# Create line chart for top 10 move-in retailers
+p_move_in <- plot_ly()
 
-# For each transfer type, create 4 traces per time period (12 total per type)
-first_type <- transfer_types[1]
-
-for (ttype in transfer_types) {
-  is_visible <- (ttype == first_type)
+for (retailer in top_10_move_in) {
+  data_subset <- monthly_move_in %>% filter(NEWFRMP_Retailer_name == retailer)
   
-  # Financial Year - 4 traces (Small, Medium, Large, Total)
-  for (size in retailer_sizes) {
-    data_subset <- finyear_type_size %>% 
-      filter(transfer_type == ttype, FRMP_Retailer_size == size)
-    
-    # Calculate total for this type
-    if (size == "Total") {
-      data_subset <- finyear_type_size %>%
-        filter(transfer_type == ttype) %>%
-        group_by(FinYear) %>%
-        summarise(transfers = sum(transfers), .groups = "drop") %>%
-        mutate(FRMP_Retailer_size = "Total")
-    }
-    
-    p_type_size <- p_type_size %>%
-      add_trace(
-        data = data_subset,
-        x = ~FinYear,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = is_visible,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "FY %{x}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
+  p_move_in <- p_move_in %>%
+    add_trace(
+      data = data_subset,
+      x = ~year_month,
+      y = ~move_ins,
+      type = "scatter",
+      mode = "lines+markers",
+      line = list(color = move_in_colors[retailer], width = 2),
+      marker = list(color = move_in_colors[retailer], size = 6),
+      name = retailer,
+      hovertemplate = paste0(
+        "<b>", retailer, "</b><br>",
+        "%{x|%B %Y}<br>",
+        "Move-ins: %{y:,.0f}<br>",
+        "<extra></extra>"
       )
-  }
-  
-  # Quarterly - 4 traces
-  for (size in retailer_sizes) {
-    data_subset <- quarterly_type_size %>% 
-      filter(transfer_type == ttype, FRMP_Retailer_size == size)
-    
-    if (size == "Total") {
-      data_subset <- quarterly_type_size %>%
-        filter(transfer_type == ttype) %>%
-        group_by(FinYearQuarter) %>%
-        summarise(transfers = sum(transfers), .groups = "drop") %>%
-        mutate(FRMP_Retailer_size = "Total")
-    }
-    
-    p_type_size <- p_type_size %>%
-      add_trace(
-        data = data_subset,
-        x = ~FinYearQuarter,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = FALSE,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "%{x}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
-      )
-  }
-  
-  # Monthly - 4 traces
-  for (size in retailer_sizes) {
-    data_subset <- monthly_type_size %>% 
-      filter(transfer_type == ttype, FRMP_Retailer_size == size)
-    
-    if (size == "Total") {
-      data_subset <- monthly_type_size %>%
-        filter(transfer_type == ttype) %>%
-        group_by(YearMonth, stat_date) %>%
-        summarise(transfers = sum(transfers), .groups = "drop") %>%
-        mutate(FRMP_Retailer_size = "Total")
-    }
-    
-    p_type_size <- p_type_size %>%
-      add_trace(
-        data = data_subset,
-        x = ~stat_date,
-        y = ~transfers,
-        type = "scatter",
-        mode = "lines+markers",
-        line = list(color = size_colors[size], width = 2),
-        marker = list(color = size_colors[size], size = 6),
-        name = size,
-        legendgroup = size,
-        showlegend = is_visible,
-        visible = FALSE,
-        hovertemplate = paste0(
-          "<b>", size, "</b><br>",
-          "%{x|%B %Y}<br>",
-          "Transfers: %{y:,.0f}<br>",
-          "<extra></extra>"
-        )
-      )
-  }
+    )
 }
 
-# Create transfer type dropdown buttons
-n_types <- length(transfer_types)
-type_buttons <- lapply(seq_along(transfer_types), function(i) {
-  ttype <- transfer_types[i]
-  
-  # Each type has 12 traces (4 sizes × 3 time periods)
-  # Show only the first 4 (Financial Year) for selected type
-  start_idx <- (i - 1) * 12 + 1
-  visible_vector <- rep(FALSE, n_types * 12)
-  visible_vector[start_idx:(start_idx + 3)] <- TRUE  # Show FY traces for this type
-  
-  list(
-    label = ttype,
-    method = "update",
-    args = list(
-      list(visible = visible_vector),
-      list(title = paste("Transfer Trends by Retailer Size -", ttype))
-    )
-  )
-})
-
-# Create time period drill-down buttons (for first type initially)
-time_buttons <- list(
-  list(
-    label = "Financial Year",
-    method = "update",
-    args = list(
-      list(visible = c(rep(TRUE, 4), rep(FALSE, 8), rep(FALSE, (n_types - 1) * 12))),
-      list(
-        xaxis = list(title = "Financial Year", type = "category")
-      )
-    )
-  ),
-  list(
-    label = "Quarterly",
-    method = "update",
-    args = list(
-      list(visible = c(rep(FALSE, 4), rep(TRUE, 4), rep(FALSE, 4), rep(FALSE, (n_types - 1) * 12))),
-      list(
-        xaxis = list(
-          title = "Quarter",
-          type = "category",
-          tickmode = "array",
-          tickvals = q1_q3_ticks,
-          ticktext = q1_q3_ticks,
-          tickangle = 45
-        )
-      )
-    )
-  ),
-  list(
-    label = "Monthly",
-    method = "update",
-    args = list(
-      list(visible = c(rep(FALSE, 8), rep(TRUE, 4), rep(FALSE, (n_types - 1) * 12))),
-      list(
-        xaxis = list(title = "Month", type = "date", tickangle = 0)
-      )
-    )
-  )
-)
-
-p_type_size <- p_type_size %>%
+p_move_in <- p_move_in %>%
   layout(
     title = list(
-      text = paste("Transfer Trends by Retailer Size -", first_type),
+      text = "Top 5 Retailers - Move-In Transfers (Last 12 Months)",
       font = font_title
     ),
     xaxis = list(
-      title = "Financial Year",
+      title = "Month",
       font = font_axis,
       showgrid = TRUE,
-      gridcolor = colour_palette["gray_4"]
+      gridcolor = colour_palette["gray_4"],
+      type = "date"
     ),
     yaxis = list(
-      title = "Number of Transfers",
+      title = "Number of Move-In Transfers",
       font = font_axis,
       showgrid = TRUE,
       gridcolor = colour_palette["gray_4"],
       separatethousands = TRUE
     ),
-    
     legend = list(
-      orientation = "h",
-      x = 0,
-      y = -0.15,
+      orientation = "v",
+      x = 1.02,
+      y = 1,
       font = font_axis
     ),
-    
-    updatemenus = list(
-      # Transfer type dropdown
-      list(
-        type = "dropdown",
-        direction = "down",
-        xanchor = "left",
-        yanchor = "top",
-        x = 0,
-        y = 1.18,
-        bgcolor = colour_palette["gray_4"],
-        bordercolor = colour_palette["gray_2"],
-        borderwidth = 1,
-        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = type_buttons
-      ),
-      # Time period buttons
-      list(
-        type = "buttons",
-        direction = "right",
-        xanchor = "left",
-        yanchor = "top",
-        x = 0,
-        y = 1.12,
-        bgcolor = colour_palette["gray_4"],
-        bordercolor = colour_palette["gray_2"],
-        borderwidth = 1,
-        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = time_buttons
-      )
-    ),
-    
-    hovermode = "x unified",
+    hovermode = "closest",
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main
+    font = font_main,
+    margin = list(r = 150)
   )
 
-p_type_size
+p_move_in
 ```
 
 ---
 
-# 4. Retailer-Specific Analysis
+# 3. Movement Analysis Between Retailers
 
-## 4.1 Transfers OUT by Retailer
+## 3.1 Transfers OUT by Retailer for the past 12 months
+
+<br>
 
 ```{r chart-4-prep}
-# Transfers OUT = where retailer is FRMP (origin)
-# Group by retailer name and time period
+# Get the most recent date and calculate 12 months ago
+max_date <- max(transfers$stat_date, na.rm = TRUE)
+months_ago_12 <- max_date %m-% months(12)
 
-# Get top retailers by total transfers out
-top_retailers_out <- transfers %>%
-  filter(stat_shortcut == "M57A", !is.na(FRMP_Retailer_name)) %>%
+# Transfers OUT = where retailer is FRMP (origin)
+# Filter for last 12 months
+transfers_out_12m <- transfers %>%
+  filter(
+    stat_shortcut == "M57A",
+    stat_date >= months_ago_12,
+    stat_date <= max_date,
+    !is.na(FRMP_Retailer_name)
+  )
+
+# Get top 10 retailers by total transfers out in last 12 months
+top_retailers_out <- transfers_out_12m %>%
   group_by(FRMP_Retailer_name) %>%
-  summarise(total_out = sum(stat_value, na.rm = TRUE)) %>%
+  summarise(total_out = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_out)) %>%
-  slice(1:10) %>%  # Top 10
+  slice(1:10) %>%
   pull(FRMP_Retailer_name)
 
 # Monthly transfers out for top retailers
-monthly_out <- transfers %>%
-  filter(stat_shortcut == "M57A", FRMP_Retailer_name %in% top_retailers_out) %>%
-  group_by(YearMonth, stat_date = floor_date(stat_date, "month"), FRMP_Retailer_name) %>%
+monthly_out <- transfers_out_12m %>%
+  filter(FRMP_Retailer_name %in% top_retailers_out) %>%
+  mutate(year_month = floor_date(stat_date, "month")) %>%
+  group_by(year_month, FRMP_Retailer_name) %>%
   summarise(
     transfers_out = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  arrange(stat_date, FRMP_Retailer_name)
+  arrange(year_month, FRMP_Retailer_name)
 
-# Quarterly transfers out
-quarterly_out <- transfers %>%
-  filter(stat_shortcut == "M57A", FRMP_Retailer_name %in% top_retailers_out) %>%
-  group_by(FinYearQuarter, FRMP_Retailer_name) %>%
-  summarise(
-    transfers_out = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYearQuarter, FRMP_Retailer_name)
-
-# Financial year transfers out
-finyear_out <- transfers %>%
-  filter(stat_shortcut == "M57A", FRMP_Retailer_name %in% top_retailers_out) %>%
-  group_by(FinYear, FRMP_Retailer_name) %>%
-  summarise(
-    transfers_out = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYear, FRMP_Retailer_name)
-
-# Assign colors to top retailers (cycle through palette)
+# Assign distinct colors to top 10 retailers from colour_palette
 retailer_out_colors <- setNames(
-  rep(c(colour_palette["blue_main"], colour_palette["red_main"], 
-        colour_palette["gray_1"], colour_palette["gray_2"], 
-        colour_palette["gray_3"]), length.out = length(top_retailers_out)),
+  c(
+    colour_palette["blue_main"],
+    colour_palette["red_main"],
+    colour_palette["gray_1"],
+    colour_palette["gray_2"],
+    colour_palette["blue_1"],
+    colour_palette["blue_2"],
+    colour_palette["orange"],
+    colour_palette["yellow"],
+    colour_palette["gray_3"],
+    colour_palette["gray_4"]
+  ),
   top_retailers_out
 )
 ```
 
 ```{r chart-4-transfers-out}
-# Create line chart for transfers OUT
+# Create line chart for transfers OUT (last 12 months)
 p_transfers_out <- plot_ly()
 
-# Financial Year traces
-for (retailer in top_retailers_out) {
-  data_subset <- finyear_out %>% filter(FRMP_Retailer_name == retailer)
-  
-  p_transfers_out <- p_transfers_out %>%
-    add_trace(
-      data = data_subset,
-      x = ~FinYear,
-      y = ~transfers_out,
-      type = "scatter",
-      mode = "lines+markers",
-      line = list(color = retailer_out_colors[retailer], width = 2),
-      marker = list(color = retailer_out_colors[retailer], size = 6),
-      name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = TRUE,
-      hovertemplate = paste0(
-        "<b>", retailer, "</b><br>",
-        "FY %{x}<br>",
-        "Transfers OUT: %{y:,.0f}<br>",
-        "<extra></extra>"
-      )
-    )
-}
-
-# Quarterly traces (hidden)
-for (retailer in top_retailers_out) {
-  data_subset <- quarterly_out %>% filter(FRMP_Retailer_name == retailer)
-  
-  p_transfers_out <- p_transfers_out %>%
-    add_trace(
-      data = data_subset,
-      x = ~FinYearQuarter,
-      y = ~transfers_out,
-      type = "scatter",
-      mode = "lines+markers",
-      line = list(color = retailer_out_colors[retailer], width = 2),
-      marker = list(color = retailer_out_colors[retailer], size = 6),
-      name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = FALSE,
-      hovertemplate = paste0(
-        "<b>", retailer, "</b><br>",
-        "%{x}<br>",
-        "Transfers OUT: %{y:,.0f}<br>",
-        "<extra></extra>"
-      )
-    )
-}
-
-# Monthly traces (hidden)
 for (retailer in top_retailers_out) {
   data_subset <- monthly_out %>% filter(FRMP_Retailer_name == retailer)
   
   p_transfers_out <- p_transfers_out %>%
     add_trace(
       data = data_subset,
-      x = ~stat_date,
+      x = ~year_month,
       y = ~transfers_out,
       type = "scatter",
       mode = "lines+markers",
       line = list(color = retailer_out_colors[retailer], width = 2),
       marker = list(color = retailer_out_colors[retailer], size = 6),
       name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = FALSE,
       hovertemplate = paste0(
         "<b>", retailer, "</b><br>",
         "%{x|%B %Y}<br>",
@@ -1316,19 +1121,18 @@ for (retailer in top_retailers_out) {
     )
 }
 
-n_retailers_out <- length(top_retailers_out)
-
 p_transfers_out <- p_transfers_out %>%
   layout(
     title = list(
-      text = "Top 10 Retailers - Transfers OUT (Customer Losses)",
+      text = "Top 10 Retailers - Transfers OUT (Customer Losses) - Last 12 Months",
       font = font_title
     ),
     xaxis = list(
-      title = "Financial Year",
+      title = "Month",
       font = font_axis,
       showgrid = TRUE,
-      gridcolor = colour_palette["gray_4"]
+      gridcolor = colour_palette["gray_4"],
+      type = "date"
     ),
     yaxis = list(
       title = "Number of Transfers OUT",
@@ -1345,71 +1149,11 @@ p_transfers_out <- p_transfers_out %>%
       font = font_axis
     ),
     
-    updatemenus = list(
-      list(
-        type = "buttons",
-        direction = "right",
-        xanchor = "left",
-        yanchor = "top",
-        x = 0,
-        y = 1.12,
-        bgcolor = colour_palette["gray_4"],
-        bordercolor = colour_palette["gray_2"],
-        borderwidth = 1,
-        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = list(
-          list(
-            label = "Financial Year",
-            method = "update",
-            args = list(
-              list(visible = c(rep(TRUE, n_retailers_out), rep(FALSE, n_retailers_out * 2))),
-              list(
-                xaxis = list(
-                  title = "Financial Year",
-                  type = "category"
-                )
-              )
-            )
-          ),
-          list(
-            label = "Quarterly",
-            method = "update",
-            args = list(
-              list(visible = c(rep(FALSE, n_retailers_out), rep(TRUE, n_retailers_out), rep(FALSE, n_retailers_out))),
-              list(
-                xaxis = list(
-                  title = "Quarter",
-                  type = "category",
-                  tickmode = "array",
-                  tickvals = q1_q3_ticks,
-                  ticktext = q1_q3_ticks,
-                  tickangle = 45
-                )
-              )
-            )
-          ),
-          list(
-            label = "Monthly",
-            method = "update",
-            args = list(
-              list(visible = c(rep(FALSE, n_retailers_out * 2), rep(TRUE, n_retailers_out))),
-              list(
-                xaxis = list(
-                  title = "Month",
-                  type = "date",
-                  tickangle = 0
-                )
-              )
-            )
-          )
-        )
-      )
-    ),
-    
     hovermode = "x unified",
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main
+    font = font_main,
+    margin = list(r = 150)
   )
 
 p_transfers_out
@@ -1417,150 +1161,441 @@ p_transfers_out
 
 ### Key Insights - Transfers OUT
 
-```{r insights-4}
-# Top losers in latest FY
-latest_fy_out <- finyear_out %>%
-  filter(FinYear == max(FinYear)) %>%
-  arrange(desc(transfers_out))
+```{r insights-4, results='asis'}
+# Top losers in last 12 months
+latest_fy_out <- transfers_out_12m %>%
+  filter(FRMP_Retailer_name %in% top_retailers_out) %>%
+  group_by(FRMP_Retailer_name) %>%
+  summarise(total_out = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(total_out))
 
-cat(paste0("Top retailers losing customers (FY ", max(finyear_out$FinYear), "):\n"))
+# Top losers in last 12 months
+cat(paste0(
+  "<b>Top retailers losing customers (Last 12 Months: ",
+  format(months_ago_12, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
+))
+
 for (i in 1:min(5, nrow(latest_fy_out))) {
   cat(paste0(
-    "  ", i, ". ", latest_fy_out$FRMP_Retailer_name[i], ": ",
-    format(latest_fy_out$transfers_out[i], big.mark = ","), " transfers out\n"
+    i, ". <b>", latest_fy_out$FRMP_Retailer_name[i], "</b>: ",
+    format(latest_fy_out$total_out[i], big.mark = ","), " transfers out<br>"
   ))
 }
 ```
 
----
+## 3.2 Transfers OUT by Retailer for `r latest_month`
 
-## 4.2 Transfers IN by Retailer
+```{r}
+### --- PREP SECTION FOR SANKEY CHARTS --- ###
+
+# Get current financial year
+current_fy <- transfers %>%
+  filter(stat_shortcut == "M57A") %>%
+  summarise(max(FinYear, na.rm = TRUE)) %>%
+  pull()
+
+# Get the latest month’s stat_date
+latest_month_date <- transfers %>%
+  filter(stat_shortcut == "M57A", FinYear == current_fy) %>%
+  summarise(latest = max(stat_date, na.rm = TRUE)) %>%
+  pull()
+
+# All retailer-to-retailer movements for latest month
+retailer_movements_latest <- transfers %>%
+  filter(
+    stat_shortcut == "M57A",
+    stat_date == latest_month_date,
+    !is.na(FRMP_Retailer_name),
+    !is.na(NEWFRMP_Retailer_name)
+  ) %>%
+  group_by(
+    FRMP_Retailer_name,
+    NEWFRMP_Retailer_name,
+    FRMP_Retailer_size,
+    NEWFRMP_Retailer_size
+  ) %>%
+  summarise(transfers = sum(stat_value, na.rm = TRUE), .groups = "drop")
+
+# Retailer colours by size
+retailer_size_colors <- c(
+  "Small"  = colour_palette[["blue_main"]],
+  "Medium" = colour_palette[["gray_2"]],
+  "Large"  = colour_palette[["gray_3"]]
+)
+
+fallback_color <- colour_palette[["gray_4"]]  # For size = NA
+
+assign_node_color <- function(size) {
+  ifelse(size %in% names(retailer_size_colors),
+         retailer_size_colors[size],
+         fallback_color)
+}
+```
+
+```{r}
+create_sankey_top_out <- function() {
+  
+  ## --- Top 5 losing retailers (OUT) ---
+  top_out_retailers <- retailer_movements_latest %>%
+    group_by(FRMP_Retailer_name, FRMP_Retailer_size) %>%
+    summarise(total_out = sum(transfers), .groups = "drop") %>%
+    arrange(desc(total_out)) %>%
+    slice(1:5)
+  
+  data_filtered <- retailer_movements_latest %>%
+    filter(FRMP_Retailer_name %in% top_out_retailers$FRMP_Retailer_name)
+  
+  ## SORT left nodes by transfers descending
+  from_retailers <- top_out_retailers$FRMP_Retailer_name
+  
+  ## Right nodes (all destinations)
+  to_retailers <- data_filtered %>%
+    group_by(NEWFRMP_Retailer_name) %>%
+    summarise(total = sum(transfers)) %>%
+    arrange(desc(total)) %>%
+    pull(NEWFRMP_Retailer_name)
+  
+  n_from <- length(from_retailers)
+  n_to   <- length(to_retailers)
+  
+  ## LEFT NODES (FROM)
+  from_node_map <- data.frame(
+    retailer = from_retailers,
+    index    = 0:(n_from - 1)
+  ) %>%
+    left_join(top_out_retailers %>% 
+                rename(retailer = FRMP_Retailer_name, size = FRMP_Retailer_size),
+              by = "retailer") %>%
+    mutate(
+      label = retailer,
+      color = assign_node_color(size)
+    )
+  
+  ## RIGHT NODES (TO)
+  retailer_sizes_to <- data_filtered %>%
+    distinct(NEWFRMP_Retailer_name, NEWFRMP_Retailer_size) %>%
+    rename(retailer = NEWFRMP_Retailer_name, size = NEWFRMP_Retailer_size)
+  
+  to_node_map <- data.frame(
+    retailer = to_retailers,
+    index    = n_from:(n_from + n_to - 1)
+  ) %>%
+    left_join(retailer_sizes_to, by = "retailer") %>%
+    mutate(
+      label = retailer,
+      color = assign_node_color(size)
+    )
+  
+  ## COMBINE NODES
+  all_nodes <- bind_rows(from_node_map, to_node_map)
+  
+  ## LINKS (proportional opacity + tooltips)
+  max_flow <- max(data_filtered$transfers, na.rm = TRUE)
+  
+  link_data <- data_filtered %>%
+    left_join(from_node_map %>% select(retailer, source = index),
+              by = c("FRMP_Retailer_name" = "retailer")) %>%
+    left_join(to_node_map %>% select(retailer, target = index),
+              by = c("NEWFRMP_Retailer_name" = "retailer")) %>%
+    mutate(
+      opacity = pmax(0.2, transfers / max_flow),
+      link_color = paste0("rgba(35,96,146,", opacity, ")"),
+      hover = paste0(
+        "<b>", transfers, " transfers</b><br>",
+        "From: ", FRMP_Retailer_name, "<br>",
+        "To: ", NEWFRMP_Retailer_name
+      )
+    )
+  
+  ## PLOT
+  plot_ly(
+    type = "sankey",
+    orientation = "h",
+    node = list(
+      label = all_nodes$label,
+      color = all_nodes$color,
+      pad = 15, thickness = 20,
+      line = list(color = "white", width = 0.5),
+      hovertemplate = paste(
+        "<b>%{label}</b><br>",
+        "Size: %{customdata}<extra></extra>"
+      ),
+      customdata = all_nodes$size
+    ),
+    link = list(
+      source = link_data$source,
+      target = link_data$target,
+      value  = link_data$transfers,
+      color  = link_data$link_color,
+      hovertemplate = "%{customdata}<extra></extra>",
+      customdata = link_data$hover
+    )
+  ) %>%
+    layout(
+      title = list(
+        text = paste("Top 5 Retailers Losing Customers –", format(latest_month_date, "%B %Y")),
+        font = font_title
+      ),
+      font = font_main,
+      margin = list(t = 80, b = 40, l = 150, r = 150)
+    )
+}
+```
+
+```{r}
+create_sankey_top_out()
+```
+
+<button class="toggleButton" onclick="toggleTable('transfers_matrix_table')" style="margin-right: 40px; padding: 8px 16px; background-color: #236092; color: white; border: none; border-radius: 4px; cursor: pointer;">Show Summary Table</button>
+
+<div id="transfers_matrix_table" style="display:none; margin-top: 20px; max-height: 600px; overflow: auto;">
+```{r transfers-matrix-table}
+# Create a complete FROM-TO matrix for ALL retailers
+matrix_data <- retailer_movements_latest %>%
+  group_by(
+    FROM_Retailer = FRMP_Retailer_name,
+    TO_Retailer = NEWFRMP_Retailer_name
+  ) %>%
+  summarise(transfers = sum(transfers), .groups = "drop") %>%
+  pivot_wider(
+    names_from = TO_Retailer,
+    values_from = transfers,
+    values_fill = 0
+  )
+
+# Get list of retailer columns (exclude FROM_Retailer)
+retailer_cols <- setdiff(names(matrix_data), "FROM_Retailer")
+
+# Calculate row totals - explicitly sum only the retailer columns
+# Convert to numeric to avoid integer64 issues
+matrix_data <- matrix_data %>%
+  mutate(across(-FROM_Retailer, as.numeric)) %>%
+  rowwise() %>%
+  mutate(`Total Out` = sum(c_across(all_of(retailer_cols)), na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate column totals (total transfers IN for each retailer)
+col_totals <- matrix_data %>%
+  select(-FROM_Retailer) %>%
+  summarise(across(everything(), ~sum(.x, na.rm = TRUE))) %>%
+  mutate(FROM_Retailer = "Total In", .before = 1)
+
+# Combine data with totals
+matrix_with_totals <- bind_rows(matrix_data, col_totals)
+
+# Sort rows alphabetically - but keep Total In row at bottom
+matrix_sorted <- matrix_with_totals %>%
+  filter(FROM_Retailer != "Total In") %>%
+  arrange(FROM_Retailer) %>%
+  bind_rows(matrix_with_totals %>% filter(FROM_Retailer == "Total In"))
+
+# Sort columns alphabetically (excluding FROM_Retailer and Total Out)
+retailer_cols_final <- setdiff(names(matrix_sorted), c("FROM_Retailer", "Total Out"))
+retailer_cols_sorted <- sort(retailer_cols_final)
+
+# Reorder columns: FROM_Retailer, then alphabetical retailers, then Total Out
+matrix_sorted <- matrix_sorted %>%
+  select(FROM_Retailer, all_of(retailer_cols_sorted), `Total Out`)
+
+# Get max value for heatmap scaling (excluding totals row/column)
+data_for_scaling <- matrix_sorted %>%
+  filter(FROM_Retailer != "Total In") %>%
+  select(-FROM_Retailer, -`Total Out`)
+
+max_value <- max(as.matrix(data_for_scaling), na.rm = TRUE)
+
+# Custom color function using your blue scale
+get_color <- function(value, max_val) {
+  # Handle NA, NULL, or zero values
+  if (is.na(value) || is.null(value) || value == 0) {
+    return("#FFFFFF")
+  }
+  
+  # Ensure value and max_val are valid numbers
+  value <- as.numeric(value)
+  max_val <- as.numeric(max_val)
+  
+  if (is.na(value) || is.na(max_val) || max_val == 0) {
+    return("#FFFFFF")
+  }
+  
+  # Normalize value between 0 and 1
+  intensity <- min(1, max(0, value / max_val))
+  
+  # Your color scale: light to dark blue
+  if (intensity <= 0.33) {
+    # Interpolate between white and light blue
+    r <- round(255 - (255 - 211) * (intensity / 0.33))
+    g <- round(255 - (255 - 223) * (intensity / 0.33))
+    b <- round(255 - (255 - 233) * (intensity / 0.33))
+  } else if (intensity <= 0.66) {
+    # Interpolate between light blue and medium blue
+    t <- (intensity - 0.33) / 0.33
+    r <- round(211 - (211 - 123) * t)
+    g <- round(223 - (223 - 160) * t)
+    b <- round(233 - (233 - 190) * t)
+  } else {
+    # Interpolate between medium blue and dark blue
+    t <- (intensity - 0.66) / 0.34
+    r <- round(123 - (123 - 35) * t)
+    g <- round(160 - (160 - 97) * t)
+    b <- round(190 - (190 - 146) * t)
+  }
+  
+  # Ensure RGB values are valid (0-255)
+  r <- min(255, max(0, r))
+  g <- min(255, max(0, g))
+  b <- min(255, max(0, b))
+  
+  return(rgb(r, g, b, maxColorValue = 255))
+}
+
+# Create a copy for formatting - keep as character to store HTML
+matrix_formatted <- matrix_sorted
+matrix_formatted[,-1] <- as.character(NA)  # Convert all except first column to character
+
+# Apply cell_spec formatting to create heatmap
+for (i in 1:(nrow(matrix_sorted)-1)) {  # Exclude Total In row
+  for (j in 2:(ncol(matrix_sorted)-1)) {  # Exclude FROM_Retailer and Total Out
+    cell_value <- as.numeric(matrix_sorted[[j]][i])
+    
+    # Skip if NA or 0
+    if (is.na(cell_value)) {
+      matrix_formatted[i, j] <- "NA"
+      next
+    }
+    
+    cell_color <- get_color(cell_value, max_val = max_value)
+    text_color <- ifelse(cell_value > max_value * 0.5, "white", "black")
+    
+    matrix_formatted[i, j] <- cell_spec(
+      format(cell_value, big.mark = ","),
+      background = cell_color,
+      color = text_color,
+      escape = FALSE
+    )
+  }
+}
+
+# Format Total Out column (no heatmap)
+for (i in 1:(nrow(matrix_formatted)-1)) {
+  total_val <- as.numeric(matrix_sorted$`Total Out`[i])
+  matrix_formatted[i, ncol(matrix_formatted)] <- format(total_val, big.mark = ",")
+}
+
+# Format Total In row (no heatmap)
+last_row <- nrow(matrix_formatted)
+for (j in 2:ncol(matrix_formatted)) {
+  total_val <- as.numeric(matrix_sorted[last_row, j])
+  matrix_formatted[last_row, j] <- format(total_val, big.mark = ",")
+}
+
+# Format with kable
+matrix_formatted %>%
+  kbl(
+    format = "html",
+    escape = FALSE,
+    align = c("l", rep("c", ncol(matrix_formatted)-1)),
+    col.names = c("", retailer_cols_sorted, "Total Out")
+  ) %>%
+  kable_styling(
+    full_width = TRUE,
+    bootstrap_options = c("bordered"),
+    position = "center",
+    font_size = 11
+  ) %>%
+  add_header_above(c("Retailer (Transfer Out)" = 1, "Retailer (Transfer In)" = length(retailer_cols_sorted), " " = 1), 
+                   bold = TRUE, background = "#236192", color = "white", line = TRUE) %>%
+  row_spec(0, bold = TRUE, background = "#236192", color = "white") %>%
+  row_spec(nrow(matrix_formatted), bold = TRUE, background = "#D3DFE9") %>%
+  column_spec(1, bold = TRUE, background = "#D3DFE9", extra_css = "min-width: 150px; text-align: left;") %>%
+  column_spec(ncol(matrix_formatted), bold = TRUE, background = "#D3DFE9")
+```
+</div>
+
+<script>
+function toggleTable(id) {
+  var element = document.getElementById(id);
+  var button = event.target;
+  if (element.style.display === "none") {
+    element.style.display = "block";
+    button.textContent = "Hide Summary Table";
+  } else {
+    element.style.display = "none";
+    button.textContent = "Show Summary Table";
+  }
+}
+</script>
+
+
+
+## 3.3 Transfers IN by Retailer for the past 12 months
 
 ```{r chart-5-prep}
 # Transfers IN = where retailer is NEWFRMP (destination)
-# Group by retailer name and time period
+# Filter for last 12 months
+transfers_in_12m <- transfers %>%
+  filter(
+    stat_shortcut == "M57A",
+    stat_date >= months_ago_12,
+    stat_date <= max_date,
+    !is.na(NEWFRMP_Retailer_name)
+  )
 
-# Get top retailers by total transfers in
-top_retailers_in <- transfers %>%
-  filter(stat_shortcut == "M57A", !is.na(NEWFRMP_Retailer_name)) %>%
+# Get top 10 retailers by total transfers in in last 12 months
+top_retailers_in <- transfers_in_12m %>%
   group_by(NEWFRMP_Retailer_name) %>%
-  summarise(total_in = sum(stat_value, na.rm = TRUE)) %>%
+  summarise(total_in = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_in)) %>%
-  slice(1:10) %>%  # Top 10
+  slice(1:10) %>%
   pull(NEWFRMP_Retailer_name)
 
 # Monthly transfers in for top retailers
-monthly_in <- transfers %>%
-  filter(stat_shortcut == "M57A", NEWFRMP_Retailer_name %in% top_retailers_in) %>%
-  group_by(YearMonth, stat_date = floor_date(stat_date, "month"), NEWFRMP_Retailer_name) %>%
+monthly_in <- transfers_in_12m %>%
+  filter(NEWFRMP_Retailer_name %in% top_retailers_in) %>%
+  mutate(year_month = floor_date(stat_date, "month")) %>%
+  group_by(year_month, NEWFRMP_Retailer_name) %>%
   summarise(
     transfers_in = sum(stat_value, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  arrange(stat_date, NEWFRMP_Retailer_name)
+  arrange(year_month, NEWFRMP_Retailer_name)
 
-# Quarterly transfers in
-quarterly_in <- transfers %>%
-  filter(stat_shortcut == "M57A", NEWFRMP_Retailer_name %in% top_retailers_in) %>%
-  group_by(FinYearQuarter, NEWFRMP_Retailer_name) %>%
-  summarise(
-    transfers_in = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYearQuarter, NEWFRMP_Retailer_name)
-
-# Financial year transfers in
-finyear_in <- transfers %>%
-  filter(stat_shortcut == "M57A", NEWFRMP_Retailer_name %in% top_retailers_in) %>%
-  group_by(FinYear, NEWFRMP_Retailer_name) %>%
-  summarise(
-    transfers_in = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(FinYear, NEWFRMP_Retailer_name)
-
-# Assign colors to top retailers
+# Assign distinct colors to top 10 retailers from colour_palette
 retailer_in_colors <- setNames(
-  rep(c(colour_palette["blue_main"], colour_palette["red_main"], 
-        colour_palette["gray_1"], colour_palette["gray_2"], 
-        colour_palette["gray_3"]), length.out = length(top_retailers_in)),
+  c(
+    colour_palette["blue_main"],
+    colour_palette["red_main"],
+    colour_palette["gray_1"],
+    colour_palette["gray_2"],
+    colour_palette["blue_1"],
+    colour_palette["blue_2"],
+    colour_palette["orange"],
+    colour_palette["yellow"],
+    colour_palette["gray_3"],
+    colour_palette["gray_4"]
+  ),
   top_retailers_in
 )
 ```
 
 ```{r chart-5-transfers-in}
-# Create line chart for transfers IN
+# Create line chart for transfers IN (last 12 months)
 p_transfers_in <- plot_ly()
 
-# Financial Year traces
-for (retailer in top_retailers_in) {
-  data_subset <- finyear_in %>% filter(NEWFRMP_Retailer_name == retailer)
-  
-  p_transfers_in <- p_transfers_in %>%
-    add_trace(
-      data = data_subset,
-      x = ~FinYear,
-      y = ~transfers_in,
-      type = "scatter",
-      mode = "lines+markers",
-      line = list(color = retailer_in_colors[retailer], width = 2),
-      marker = list(color = retailer_in_colors[retailer], size = 6),
-      name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = TRUE,
-      hovertemplate = paste0(
-        "<b>", retailer, "</b><br>",
-        "FY %{x}<br>",
-        "Transfers IN: %{y:,.0f}<br>",
-        "<extra></extra>"
-      )
-    )
-}
-
-# Quarterly traces (hidden)
-for (retailer in top_retailers_in) {
-  data_subset <- quarterly_in %>% filter(NEWFRMP_Retailer_name == retailer)
-  
-  p_transfers_in <- p_transfers_in %>%
-    add_trace(
-      data = data_subset,
-      x = ~FinYearQuarter,
-      y = ~transfers_in,
-      type = "scatter",
-      mode = "lines+markers",
-      line = list(color = retailer_in_colors[retailer], width = 2),
-      marker = list(color = retailer_in_colors[retailer], size = 6),
-      name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = FALSE,
-      hovertemplate = paste0(
-        "<b>", retailer, "</b><br>",
-        "%{x}<br>",
-        "Transfers IN: %{y:,.0f}<br>",
-        "<extra></extra>"
-      )
-    )
-}
-
-# Monthly traces (hidden)
 for (retailer in top_retailers_in) {
   data_subset <- monthly_in %>% filter(NEWFRMP_Retailer_name == retailer)
   
   p_transfers_in <- p_transfers_in %>%
     add_trace(
       data = data_subset,
-      x = ~stat_date,
+      x = ~year_month,
       y = ~transfers_in,
       type = "scatter",
       mode = "lines+markers",
       line = list(color = retailer_in_colors[retailer], width = 2),
       marker = list(color = retailer_in_colors[retailer], size = 6),
       name = retailer,
-      legendgroup = retailer,
-      showlegend = TRUE,
-      visible = FALSE,
       hovertemplate = paste0(
         "<b>", retailer, "</b><br>",
         "%{x|%B %Y}<br>",
@@ -1570,19 +1605,18 @@ for (retailer in top_retailers_in) {
     )
 }
 
-n_retailers_in <- length(top_retailers_in)
-
 p_transfers_in <- p_transfers_in %>%
   layout(
     title = list(
-      text = "Top 10 Retailers - Transfers IN (Customer Gains)",
+      text = "Top 10 Retailers - Transfers IN (Customer Gains) - Last 12 Months",
       font = font_title
     ),
     xaxis = list(
-      title = "Financial Year",
+      title = "Month",
       font = font_axis,
       showgrid = TRUE,
-      gridcolor = colour_palette["gray_4"]
+      gridcolor = colour_palette["gray_4"],
+      type = "date"
     ),
     yaxis = list(
       title = "Number of Transfers IN",
@@ -1599,71 +1633,11 @@ p_transfers_in <- p_transfers_in %>%
       font = font_axis
     ),
     
-    updatemenus = list(
-      list(
-        type = "buttons",
-        direction = "right",
-        xanchor = "left",
-        yanchor = "top",
-        x = 0,
-        y = 1.12,
-        bgcolor = colour_palette["gray_4"],
-        bordercolor = colour_palette["gray_2"],
-        borderwidth = 1,
-        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
-        buttons = list(
-          list(
-            label = "Financial Year",
-            method = "update",
-            args = list(
-              list(visible = c(rep(TRUE, n_retailers_in), rep(FALSE, n_retailers_in * 2))),
-              list(
-                xaxis = list(
-                  title = "Financial Year",
-                  type = "category"
-                )
-              )
-            )
-          ),
-          list(
-            label = "Quarterly",
-            method = "update",
-            args = list(
-              list(visible = c(rep(FALSE, n_retailers_in), rep(TRUE, n_retailers_in), rep(FALSE, n_retailers_in))),
-              list(
-                xaxis = list(
-                  title = "Quarter",
-                  type = "category",
-                  tickmode = "array",
-                  tickvals = q1_q3_ticks,
-                  ticktext = q1_q3_ticks,
-                  tickangle = 45
-                )
-              )
-            )
-          ),
-          list(
-            label = "Monthly",
-            method = "update",
-            args = list(
-              list(visible = c(rep(FALSE, n_retailers_in * 2), rep(TRUE, n_retailers_in))),
-              list(
-                xaxis = list(
-                  title = "Month",
-                  type = "date",
-                  tickangle = 0
-                )
-              )
-            )
-          )
-        )
-      )
-    ),
-    
     hovermode = "x unified",
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main
+    font = font_main,
+    margin = list(r = 150)
   )
 
 p_transfers_in
@@ -1671,26 +1645,151 @@ p_transfers_in
 
 ### Key Insights - Transfers IN
 
-```{r insights-5}
-# Top gainers in latest FY
-latest_fy_in <- finyear_in %>%
-  filter(FinYear == max(FinYear)) %>%
-  arrange(desc(transfers_in))
+```{r insights-5, results='asis'}
+# Top gainers in last 12 months
+latest_fy_in <- transfers_in_12m %>%
+  filter(NEWFRMP_Retailer_name %in% top_retailers_in) %>%
+  group_by(NEWFRMP_Retailer_name) %>%
+  summarise(total_in = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(total_in))
 
-cat(paste0("Top retailers gaining customers (FY ", max(finyear_in$FinYear), "):\n"))
+cat(paste0(
+  "<b>Top retailers gaining customers (Last 12 Months: ",
+  format(months_ago_12, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
+))
+
 for (i in 1:min(5, nrow(latest_fy_in))) {
   cat(paste0(
-    "  ", i, ". ", latest_fy_in$NEWFRMP_Retailer_name[i], ": ",
-    format(latest_fy_in$transfers_in[i], big.mark = ","), " transfers in\n"
+    i, ". <b>", latest_fy_in$NEWFRMP_Retailer_name[i], "</b>: ",
+    format(latest_fy_in$total_in[i], big.mark = ","), " transfers in<br>"
   ))
 }
 ```
 
+## 3.4 Transfers IN by Retailer for `r latest_month`
+
+```{r}
+create_sankey_top_in <- function() {
+  
+  ## --- Top 5 gaining retailers (IN) ---
+  top_in_retailers <- retailer_movements_latest %>%
+    group_by(NEWFRMP_Retailer_name, NEWFRMP_Retailer_size) %>%
+    summarise(total_in = sum(transfers), .groups = "drop") %>%
+    arrange(desc(total_in)) %>%
+    slice(1:5)
+  
+  data_filtered <- retailer_movements_latest %>%
+    filter(NEWFRMP_Retailer_name %in% top_in_retailers$NEWFRMP_Retailer_name)
+  
+  ## SORT right nodes by volume
+  to_retailers <- top_in_retailers$NEWFRMP_Retailer_name
+  
+  ## Sort left nodes by inbound volume
+  from_retailers <- data_filtered %>%
+    group_by(FRMP_Retailer_name) %>%
+    summarise(total = sum(transfers)) %>%
+    arrange(desc(total)) %>%
+    pull(FRMP_Retailer_name)
+  
+  n_from <- length(from_retailers)
+  n_to   <- length(to_retailers)
+  
+  ## LEFT NODES (FROM)
+  retailer_sizes_from <- data_filtered %>%
+    distinct(FRMP_Retailer_name, FRMP_Retailer_size) %>%
+    rename(retailer = FRMP_Retailer_name, size = FRMP_Retailer_size)
+  
+  from_node_map <- data.frame(
+    retailer = from_retailers,
+    index    = 0:(n_from - 1)
+  ) %>%
+    left_join(retailer_sizes_from, by = "retailer") %>%
+    mutate(
+      label = retailer,
+      color = assign_node_color(size)
+    )
+  
+  ## RIGHT NODES (TO)
+  to_node_map <- data.frame(
+    retailer = to_retailers,
+    index    = n_from:(n_from + n_to - 1)
+  ) %>%
+    left_join(top_in_retailers %>%
+                rename(retailer = NEWFRMP_Retailer_name, size = NEWFRMP_Retailer_size),
+              by = "retailer") %>%
+    mutate(
+      label = retailer,
+      color = assign_node_color(size)
+    )
+  
+  ## COMBINE NODES
+  all_nodes <- bind_rows(from_node_map, to_node_map)
+  
+  ## LINKS (proportional opacity + tooltips)
+  max_flow <- max(data_filtered$transfers, na.rm = TRUE)
+  
+  link_data <- data_filtered %>%
+    left_join(from_node_map %>% select(retailer, source = index),
+              by = c("FRMP_Retailer_name" = "retailer")) %>%
+    left_join(to_node_map %>% select(retailer, target = index),
+              by = c("NEWFRMP_Retailer_name" = "retailer")) %>%
+    mutate(
+      opacity = pmax(0.2, transfers / max_flow),
+      link_color = paste0("rgba(35,96,146,", opacity, ")"),
+      hover = paste0(
+        "<b>", transfers, " transfers</b><br>",
+        "From: ", FRMP_Retailer_name, "<br>",
+        "To: ", NEWFRMP_Retailer_name
+      )
+    )
+  
+  ## PLOT
+  plot_ly(
+    type = "sankey",
+    orientation = "h",
+    node = list(
+      label = all_nodes$label,
+      color = all_nodes$color,
+      pad = 15, thickness = 20,
+      line = list(color = "white", width = 0.5),
+      hovertemplate = paste(
+        "<b>%{label}</b><br>",
+        "Size: %{customdata}<extra></extra>"
+      ),
+      customdata = all_nodes$size
+    ),
+    link = list(
+      source = link_data$source,
+      target = link_data$target,
+      value  = link_data$transfers,
+      color  = link_data$link_color,
+      hovertemplate = "%{customdata}<extra></extra>",
+      customdata = link_data$hover
+    )
+  ) %>%
+    layout(
+      title = list(
+        text = paste("Top 5 Retailers Gaining Customers –", format(latest_month_date, "%B %Y")),
+        font = font_title
+      ),
+      font = font_main,
+      margin = list(t = 80, b = 40, l = 150, r = 150)
+    )
+}
+```
+
+```{r}
+create_sankey_top_in()
+```
+
+<p style="margin-top: 20px; font-style: italic; color: #666;">📊 <b>Note:</b> Refer to the summary table in section 3.2 above for detailed transfer flows between all retailers.</p>
+
 ---
 
-# 5. Retailer Size Movement Patterns
 
-## 5.1 Movement Between Retailer Sizes (Sankey Diagram)
+# 4. Movement Analysis Between Retailer Sizes
+
+## 4.1 Movement Between Retailer Sizes (Sankey Diagram)
 
 ```{r chart-6-prep-2}
 # Get current financial year
@@ -1832,9 +1931,9 @@ for (i in 1:nrow(available_months)) {
 cat("### {-}\n\n")
 ```
 
-### Key Insights - Size Movements
+### Key Insights - Movement Between Retailers (Sankey Diagram)
 
-```{r insights-6-2}
+```{r insights-6-2, results='asis'}
 # Aggregate insights for entire current FY
 fy_movements <- size_movements_by_month %>%
   group_by(FRMP_Retailer_size, NEWFRMP_Retailer_size) %>%
@@ -1850,29 +1949,37 @@ fy_movements <- size_movements_by_month %>%
   ) %>%
   arrange(desc(total))
 
-cat(paste0("**FY ", current_fy, " Movement Summary**\n\n"))
+cat(paste0("<b>FY ", current_fy, " Movement Summary</b><br><br>"))
 
 for (type in c("Same Size", "Moving Up", "Moving Down")) {
+
   type_data <- fy_movements %>% filter(movement_type == type)
+
   if (nrow(type_data) > 0) {
-    cat(paste0("\n**", type, ":**\n"))
+
+    # Section heading
+    cat(paste0("<b>", type, ":</b><br>"))
+
+    # Each movement item
     for (i in 1:nrow(type_data)) {
       cat(paste0(
-        "- ", type_data$FRMP_Retailer_size[i], " → ", 
+        "- ", type_data$FRMP_Retailer_size[i], " → ",
         type_data$NEWFRMP_Retailer_size[i], ": ",
         format(type_data$total[i], big.mark = ","), 
-        " (", type_data$pct[i], "%)\n"
+        " (", type_data$pct[i], "%)<br>"
       ))
     }
+
+    cat("<br>")  # spacing between sections
   }
 }
 ```
 
 ---
 
-# 6. Latest Month Deep Dive
+# 5. Latest Month Deep Dive
 
-## 6.1 Daily Transfer Trends (Latest Month)
+## 5.1 Daily Transfer Trends (Latest Month)
 
 ```{r chart-7-prep}
 # Filter to latest month only
@@ -1980,9 +2087,28 @@ p_daily
 
 ---
 
-## 6.2 Net Change by Retailer (Latest Month)
+## 5.2 Net Change by Retailer (Latest Month)
 
-```{r chart-7-net-change-prep}
+```{r chart-6-2-net-change-prep}
+
+# Identify dates
+latest_month_date <- max(transfers$YearMonth[transfers$is_latest_month])
+
+previous_month_date <- transfers %>%
+  filter(YearMonth < latest_month_date) %>%
+  summarise(prev = max(YearMonth)) %>%
+  pull(prev)
+
+# Get M71 data (Active NMIs) for latest month
+m71_previous <- transfers %>%
+  filter(
+    stat_shortcut == "M71",
+    YearMonth == previous_month_date,
+    !is.na(FRMP_Retailer_name)
+  ) %>%
+  group_by(FRMP_Retailer_name) %>%
+  summarise(active_nmis = sum(stat_value, na.rm = TRUE), .groups = "drop")
+
 # Calculate net change (transfers IN - transfers OUT) for latest month
 retailer_net_change <- latest_month_data %>%
   group_by(FRMP_Retailer_name, NEWFRMP_Retailer_name) %>%
@@ -1999,38 +2125,80 @@ transfers_in_month <- retailer_net_change %>%
   group_by(retailer = NEWFRMP_Retailer_name) %>%
   summarise(in_transfers = sum(transfers), .groups = "drop")
 
-# Calculate net
-net_change <- transfers_out_month %>%
+# Calculate net - ABSOLUTE
+net_change_absolute <- transfers_out_month %>%
   full_join(transfers_in_month, by = "retailer") %>%
   mutate(
     out = replace_na(out, 0),
     in_transfers = replace_na(in_transfers, 0),
-    net = as.numeric(in_transfers - out)
+    net_absolute = as.numeric(in_transfers - out)
   ) %>%
-  arrange(net)
+  arrange(net_absolute)
 
-# Separate for diverging bar
-net_change <- net_change %>%
+# Calculate net - NORMALIZED (as % of customer base)
+net_change_normalized <- net_change_absolute %>%
+  left_join(m71_previous, by = c("retailer" = "FRMP_Retailer_name")) %>%
   mutate(
-    color = ifelse(net >= 0, colour_palette["blue_main"], colour_palette["red_main"])
-  )
+    active_nmis = replace_na(active_nmis, 0),
+    net_rate = ifelse(active_nmis > 0, (net_absolute / active_nmis) * 100, 0)
+  ) %>%
+  arrange(net_rate)
+
+# Add colors
+net_change_absolute <- net_change_absolute %>%
+  mutate(color = ifelse(net_absolute >= 0, colour_palette["blue_main"], colour_palette["red_main"]))
+
+net_change_normalized <- net_change_normalized %>%
+  mutate(color = ifelse(net_rate >= 0, colour_palette["blue_main"], colour_palette["red_main"]))
 ```
 
-```{r chart-7-net-change}
-# Diverging bar chart for net change
-p_net_change <- plot_ly(
-  data = net_change,
-  y = ~reorder(retailer, net),
-  x = ~net,
-  type = "bar",
-  orientation = "h",
-  marker = list(color = ~color),
-  hovertemplate = paste0(
-    "<b>%{y}</b><br>",
-    "Net Change: %{x:,.0f}<br>",
-    "<extra></extra>"
+```{r chart-6-2-net-change}
+# Create diverging bar chart with toggle for absolute vs normalized
+p_net_change <- plot_ly()
+
+# Add ABSOLUTE traces
+p_net_change <- p_net_change %>%
+  add_trace(
+    data = net_change_absolute,
+    y = ~reorder(retailer, net_absolute),
+    x = ~net_absolute,
+    type = "bar",
+    orientation = "h",
+    marker = list(color = ~color),
+    visible = TRUE,
+    name = "Absolute",
+    text = ~format(net_absolute, big.mark = ","),
+    textposition = "outside",
+    hovertemplate = paste0(
+      "<b>%{y}</b><br>",
+      "Net Change: %{x:,.0f}<br>",
+      "<extra></extra>"
+    )
   )
-) %>%
+
+# Add NORMALIZED traces
+p_net_change <- p_net_change %>%
+  add_trace(
+    data = net_change_normalized,
+    y = ~reorder(retailer, net_rate),
+    x = ~net_rate,
+    type = "bar",
+    orientation = "h",
+    marker = list(color = ~color),
+    visible = FALSE,
+    name = "Normalized",
+    text = ~sprintf("%.2f%%", net_rate),
+    textposition = "outside",
+    hovertemplate = paste0(
+      "<b>%{y}</b><br>",
+      "Net Change Rate: %{x:.2f}%<br>",
+      "Active NMIs: %{customdata:,.0f}<br>",
+      "<extra></extra>"
+    ),
+    customdata = ~active_nmis
+  )
+
+p_net_change <- p_net_change %>%
   layout(
     title = list(
       text = paste("Net Change by Retailer -", latest_month),
@@ -2051,9 +2219,63 @@ p_net_change <- plot_ly(
       font = font_axis
     ),
     showlegend = FALSE,
+    updatemenus = list(
+      list(
+        type = "buttons",
+        direction = "right",
+        xanchor = "left",
+        yanchor = "top",
+        x = 0,
+        y = 1.12,
+        bgcolor = colour_palette["gray_4"],
+        bordercolor = colour_palette["gray_2"],
+        borderwidth = 1,
+        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
+        buttons = list(
+          list(
+            label = "Absolute Numbers",
+            method = "update",
+            args = list(
+              list(visible = c(TRUE, FALSE)),
+              list(
+                xaxis = list(
+                  title = "Net Change (Transfers IN - OUT)",
+                  font = font_axis,
+                  showgrid = TRUE,
+                  gridcolor = colour_palette["gray_4"],
+                  zeroline = TRUE,
+                  zerolinecolor = colour_palette["gray_1"],
+                  zerolinewidth = 2,
+                  separatethousands = TRUE
+                )
+              )
+            )
+          ),
+          list(
+            label = "Normalized (% of Customer Base)",
+            method = "update",
+            args = list(
+              list(visible = c(FALSE, TRUE)),
+              list(
+                xaxis = list(
+                  title = "Net Change Rate (% of Active NMIs)",
+                  font = font_axis,
+                  showgrid = TRUE,
+                  gridcolor = colour_palette["gray_4"],
+                  zeroline = TRUE,
+                  zerolinecolor = colour_palette["gray_1"],
+                  zerolinewidth = 2
+                )
+              )
+            )
+          )
+        )
+      )
+    ),
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main
+    font = font_main,
+    margin = list(t = 90)
   )
 
 p_net_change
@@ -2061,233 +2283,199 @@ p_net_change
 
 ---
 
-## 6.3 Transfers IN vs OUT by Retailer (Latest Month)
+## 5.3 Transfers IN vs OUT by Retailer (Latest Month)
 
-```{r chart-7-in-out}
+```{r chart-6-3-in-out}
 library(tidyr)
 library(forcats)
-plot_df <- net_change %>%
+
+#-----------------------------
+# PREP: ABSOLUTE VALUES
+#-----------------------------
+plot_df_absolute <- net_change_absolute %>%
   mutate(
-    retailer     = as.character(retailer)
-  ) %>%
-  filter(!is.na(retailer), nzchar(retailer)) %>%     # drop blank names
-  replace_na(list(in_transfers = 0, out = 0)) %>%    # keep zero-only retailers
-  mutate(
-    out_left       = abs(as.numeric(out)),
-    in_transfers   = as.numeric(in_transfers),
+    retailer = as.character(retailer),
+    out_left = abs(as.numeric(out)),
+    in_transfers = as.numeric(in_transfers),
     total_activity = out_left + in_transfers
   ) %>%
+  filter(!is.na(retailer), nzchar(retailer)) %>%
   mutate(retailer = fct_reorder(retailer, total_activity)) %>%
   ungroup()
 
-# keep the category order for Plotly
-cat_order <- levels(plot_df$retailer)
+cat_order_absolute <- levels(plot_df_absolute$retailer)
+xmax_absolute <- max(plot_df_absolute$in_transfers, plot_df_absolute$out_left, na.rm = TRUE)
+xmax_absolute <- ceiling(xmax_absolute / 1000) * 1000
 
-xmax <- max(plot_df$in_transfers, plot_df$out_left, na.rm = TRUE)
-xmax <- ceiling((if (is.finite(xmax)) xmax else 0) / 1000) * 1000
 
-# height so every bar is visible
-h <- 28 * nrow(plot_df) + 160
+#-----------------------------
+# PREP: NORMALISED VALUES
+#-----------------------------
+plot_df_normalized <- net_change_normalized %>%
+  mutate(
+    retailer = as.character(retailer),
+    out_rate = (out / active_nmis) * 100,
+    in_rate = (in_transfers / active_nmis) * 100,
+    total_rate = out_rate + in_rate
+  ) %>%
+  filter(!is.na(retailer), nzchar(retailer), active_nmis > 0) %>%
+  mutate(retailer = fct_reorder(retailer, total_rate)) %>%
+  ungroup()
 
-p <- plot_ly(height = h)
+cat_order_normalized <- levels(plot_df_normalized$retailer)
+xmax_normalized <- max(plot_df_normalized$in_rate, plot_df_normalized$out_rate, na.rm = TRUE)
+xmax_normalized <- ceiling(xmax_normalized)
 
-# seed y categories so even zero-length bars appear
-p <- p %>% add_trace(
-  data = plot_df,
-  y = ~retailer, x = ~I(0),
-  type = "bar", orientation = "h",
-  opacity = 0, showlegend = FALSE, hoverinfo = "skip"
-)
+
+#-----------------------------
+# HEIGHT FOR FULL CHART
+#-----------------------------
+h <- 28 * max(nrow(plot_df_absolute), nrow(plot_df_normalized)) + 160
+
+
+#-----------------------------
+# PLOT START
+#-----------------------------
+p_in_out <- plot_ly(height = h)
+
+#---------------------------------------------------
+# ABSOLUTE MODE TRACES (VISIBLE BY DEFAULT)
+#---------------------------------------------------
 
 # OUT (left)
-p <- p %>% add_trace(
-  data = plot_df,
-  y = ~retailer,
-  x = ~-out_left,
-  type = "bar", orientation = "h",
-  name = "Transfers OUT",
-  marker = list(color = colour_palette[["red_main"]]),
-  hovertemplate = "<b>%{y}</b><br>Transfers OUT: %{customdata:,.0f}<extra></extra>",
-  customdata = ~out_left
-)
+p_in_out <- p_in_out %>%
+  add_trace(
+    data = plot_df_absolute,
+    y = ~retailer,
+    x = ~-out_left,
+    type = "bar", orientation = "h",
+    name = "Transfers OUT",
+    marker = list(color = colour_palette[["red_main"]]),
+    hovertemplate = "<b>%{y}</b><br>Transfers OUT: %{x:,.0f}<extra></extra>",
+    visible = TRUE
+  )
 
 # IN (right)
-p <- p %>% add_trace(
-  data = plot_df,
-  y = ~retailer,
-  x = ~in_transfers,
-  type = "bar", orientation = "h",
-  name = "Transfers IN",
-  marker = list(color = colour_palette[["blue_main"]]),
-  hovertemplate = "<b>%{y}</b><br>Transfers IN: %{x:,.0f}<extra></extra>"
-)
-
-p <- p %>% layout(
-  title = list(text = paste("Transfers IN vs OUT –", latest_month), font = font_title),
-  barmode = "overlay",
-  bargap  = 0.15,
-  xaxis = list(
-    title = "Transfers (OUT \u2190 | \u2192 IN)",
-    range = c(-xmax, xmax),
-    zeroline = TRUE, zerolinecolor = colour_palette[["gray_1"]], zerolinewidth = 2,
-    tickformat = ",.0f", separatethousands = TRUE,
-    showgrid = TRUE, gridcolor = colour_palette[["gray_4"]]
-  ),
-  yaxis = list(
-    title = "",
-    automargin = TRUE,
-    categoryorder = "array",          # lock order
-    categoryarray = cat_order
-  ),
-  legend = list(orientation = "h", x = 1, xanchor = "right", y = 1.12, yanchor = "bottom"),
-  plot_bgcolor = "white",
-  paper_bgcolor = "white",
-  font = font_main,
-  margin = list(l = 160, r = 40, t = 90, b = 60)
-)
-
-p
-```
-
-```{r}
-# Prepare data for NMI vs Transfer % chart with dual axis
-# Show current month + last 12 months
-# M71 grouped by FRMP_Retailer_name, M57A grouped by NEWFRMP_Retailer_name
-
-# Get the most recent date in the dataset
-max_date <- max(transfers$stat_date, na.rm = TRUE)
-
-# Calculate the date 12 months ago
-months_ago_12 <- max_date %m-% months(12)
-
-# Prepare M71 data (Active NMIs by FRMP)
-m71_data <- transfers %>%
-  filter(!is.na(FRMP_Retailer_name)) %>%
-  filter(stat_date >= months_ago_12 & stat_date <= max_date) %>%
-  filter(stat_shortcut == "M71") %>%
-  mutate(year_month = floor_date(stat_date, "month")) %>%
-  group_by(year_month, FRMP_Retailer_name) %>%
-  summarise(
-    active_nmis = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Prepare M57A data (Transfers by NEWFRMP)
-m57a_data <- transfers %>%
-  filter(!is.na(NEWFRMP_Retailer_name)) %>%
-  filter(stat_date >= months_ago_12 & stat_date <= max_date) %>%
-  filter(stat_shortcut == "M57A") %>%
-  mutate(year_month = floor_date(stat_date, "month")) %>%
-  group_by(year_month, NEWFRMP_Retailer_name) %>%
-  summarise(
-    transfers = sum(stat_value, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  rename(FRMP_Retailer_name = NEWFRMP_Retailer_name)  # Rename for joining
-
-# Join the two datasets
-nmi_transfer_data <- m71_data %>%
-  full_join(m57a_data, by = c("year_month", "FRMP_Retailer_name")) %>%
-  replace_na(list(active_nmis = 0, transfers = 0)) %>%
-  mutate(
-    transfer_pct = ifelse(active_nmis > 0, (transfers / active_nmis) * 100, 0),
-    month_name = format(year_month, "%b %y"),
-    sort_date = year_month
-  ) %>%
-  arrange(sort_date)
-
-# Get available retailers
-available_retailers <- unique(nmi_transfer_data$FRMP_Retailer_name) %>% 
-  na.omit() %>% 
-  sort()
-
-# Default selection
-default_retailer <- available_retailers[1]
-```
-
-```{r}
-# Create dual-axis chart for selected retailer
-selected_data <- nmi_transfer_data %>%
-  filter(FRMP_Retailer_name == default_retailer) %>%
-  arrange(sort_date)
-
-p_nmi_dual <- plot_ly(data = selected_data)
-
-# Add Active NMIs (M71) bar
-p_nmi_dual <- p_nmi_dual %>%
+p_in_out <- p_in_out %>%
   add_trace(
-    x = ~month_name,
-    y = ~active_nmis,
-    type = "bar",
-    name = "Active NMIs",
-    marker = list(color = colour_palette["gray_3"]),
-    hovertemplate = paste0(
-      "%{x}<br>",
-      "Active NMIs: %{y:,.0f}<br>",
-      "<extra></extra>"
-    )
+    data = plot_df_absolute,
+    y = ~retailer,
+    x = ~in_transfers,
+    type = "bar", orientation = "h",
+    name = "Transfers IN",
+    marker = list(color = colour_palette[["blue_main"]]),
+    hovertemplate = "<b>%{y}</b><br>Transfers IN: %{x:,.0f}<extra></extra>",
+    visible = TRUE
   )
 
-# Add Transfer % line on secondary axis
-p_nmi_dual <- p_nmi_dual %>%
+
+#---------------------------------------------------
+# NORMALISED MODE TRACES (HIDDEN INITIALLY)
+#---------------------------------------------------
+
+# Churn (left)
+p_in_out <- p_in_out %>%
   add_trace(
-    x = ~month_name,
-    y = ~transfer_pct,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "Transfer %",
-    yaxis = "y2",
-    line = list(color = colour_palette["red_main"], width = 3),
-    marker = list(color = colour_palette["red_main"], size = 8),
-    text = ~transfers,  # Add transfers count for hover
-    hovertemplate = paste0(
-      "%{x}<br>",
-      "Transfers: %{text:,.0f}<br>",
-      "Transfer %: %{y:.1f}%<br>",
-      "<extra></extra>"
-    )
+    data = plot_df_normalized,
+    y = ~retailer,
+    x = ~-out_rate,
+    type = "bar", orientation = "h",
+    name = "Churn Rate",
+    marker = list(color = colour_palette[["red_main"]]),
+    hovertemplate = "<b>%{y}</b><br>Churn Rate: %{x:.2f}%<br>Active NMIs: %{customdata:,.0f}<extra></extra>",
+    customdata = ~active_nmis,
+    visible = FALSE
   )
 
-p_nmi_dual <- p_nmi_dual %>%
+# Acquisition (right)
+p_in_out <- p_in_out %>%
+  add_trace(
+    data = plot_df_normalized,
+    y = ~retailer,
+    x = ~in_rate,
+    type = "bar", orientation = "h",
+    name = "Acquisition Rate",
+    marker = list(color = colour_palette[["blue_main"]]),
+    hovertemplate = "<b>%{y}</b><br>Acquisition Rate: %{x:.2f}%<br>Active NMIs: %{customdata:,.0f}<extra></extra>",
+    customdata = ~active_nmis,
+    visible = FALSE
+  )
+
+
+#-----------------------------
+# LAYOUT + TOGGLE MENU
+#-----------------------------
+p_in_out <- p_in_out %>%
   layout(
-    title = list(
-      text = paste0("Active NMIs & Transfers In % - ", default_retailer),
-      font = font_title
-    ),
+    title = list(text = paste("Transfers IN vs OUT –", latest_month), font = font_title),
+    barmode = "overlay",
+    bargap = 0.2,
     xaxis = list(
-      title = "",
-      font = font_axis,
-      categoryorder = "array",
-      categoryarray = selected_data$month_name
+      title = "Transfers (OUT ← | → IN)",
+      range = c(-xmax_absolute, xmax_absolute),
+      zeroline = TRUE, zerolinecolor = colour_palette[["gray_1"]],
+      tickformat = ",.0f",
+      showgrid = TRUE, gridcolor = colour_palette["gray_4"]
     ),
     yaxis = list(
-      title = "Active NMIs",
-      font = font_axis,
-      showgrid = TRUE,
-      gridcolor = colour_palette["gray_4"],
-      separatethousands = TRUE
+      title = "",
+      categoryorder = "array",
+      categoryarray = cat_order_absolute,
+      automargin = TRUE
     ),
-    yaxis2 = list(
-      title = "Transfers In as a % of Active NMIs",
-      font = font_axis,
-      overlaying = "y",
-      side = "right",
-      showgrid = FALSE,
-      rangemode = "tozero",
-      titlefont = list(standoff = 15)
+    updatemenus = list(
+      list(
+        type = "buttons",
+        direction = "right",
+        x = 0, y = 1.12,
+        bgcolor = colour_palette["gray_4"],
+        bordercolor = colour_palette["gray_2"],
+        buttons = list(
+          list(
+            label = "Absolute Numbers",
+            method = "update",
+            args = list(
+              list(visible = c(TRUE, TRUE, FALSE, FALSE)),
+              list(
+                xaxis = list(
+                  title = "Transfers (OUT ← | → IN)",
+                  range = c(-xmax_absolute, xmax_absolute),
+                  tickformat = ",.0f"
+                ),
+                yaxis = list(
+                  categoryorder = "array",
+                  categoryarray = cat_order_absolute
+                )
+              )
+            )
+          ),
+          list(
+            label = "Normalized (% of Customer Base)",
+            method = "update",
+            args = list(
+              list(visible = c(FALSE, FALSE, TRUE, TRUE)),
+              list(
+                xaxis = list(
+                  title = "Rate (Churn % ← | → Acquisition %)",
+                  range = c(-xmax_normalized, xmax_normalized),
+                  tickformat = ".1f"
+                ),
+                yaxis = list(
+                  categoryorder = "array",
+                  categoryarray = cat_order_normalized
+                )
+              )
+            )
+          )
+        )
+      )
     ),
-    legend = list(
-      orientation = "h",
-      x = 0,
-      y = -0.15,
-      font = font_axis
-    ),
-    margin = list(t = 100, r = 80),
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main
+    font = font_main,
+    margin = list(l = 160, r = 40, t = 90, b = 60)
   )
 
-p_nmi_dual
-```
+p_in_out
 
+```

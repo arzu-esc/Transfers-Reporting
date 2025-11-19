@@ -66,7 +66,7 @@ con <- DBI::dbConnect(
   UID                     = UID,
   Encrypt                 = "yes",
   TrustServerCertificate  = "yes",
-  Timeout                 = 15
+  Timeout                 = 0
 )
 on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
 
