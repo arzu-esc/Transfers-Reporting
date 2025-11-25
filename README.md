@@ -171,12 +171,14 @@ This executes in sequence:
 2. **AEMO retailer IDs missing from retailer look up**
 
   **Steps to take:**
+  
     1. Review the missing_ids in `04_outputs/missing_ids`
     
     ```r
     missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
     View(missing_ids)
     ```
+    
     This shows:
       - Which stat type has unmapped IDs (M71 or M57A)
       - Which field is affected (FRMP or NEWFRMP)
