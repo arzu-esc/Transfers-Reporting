@@ -80,13 +80,12 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 |------------|-------------|
 | `00_run_all.R` | **Primary entry point**<br>Executes all scripts below |
 | `00_run_completion.R` | **Completion pipeline**<br>Loads validated data to SQL, prepares reporting data, and generates HTML report. Run manually after fixing validation failures |
-| `01_config.R` | **Configuration and environment setup**<br>Loads all required R packages, sets up global folder<br>
-pathways, defines sql and sharepoint connection parameters and writes resuablel helper functions |
+| `01_config.R` | **Configuration and environment setup**<br>Loads all required R packages, sets up global folder pathways, defines sql and sharepoint connection parameters and writes resuablel helper functions |
 | `02_get_new_month_data.R` | **SharePoint data retrieval**<br>Downloads newest monthly transfer data CSV from SharePoint |
 | `03_check_retailer_ids.R` | **Validation checkpoint**<br>Validate FRMP and NEWFRMP IDs in the latest monthly AEMO CSV |
-| `04_load_data_sql.R` | **Data loading and transformation**<br> After successful ID validation, loads the newest<br> monthly transfer CSV into SQL staging table and then runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
+| `04_load_data_sql.R` | **Data loading and transformation**<br> After successful ID validation, loads the newest monthly transfer CSV into SQL staging table and then runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
 | `05_read_updated_transfer_data.R` | **Report data preparation**<br>Read updated transfer data from SQL view (dbo.vw_aemo_transfers) into R |
-| `transfers_report.html | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`
+| `transfers_report.html` | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`
 
 ---
 
