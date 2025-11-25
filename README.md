@@ -67,9 +67,11 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 | Script Name | Description |
 |------------|-------------|
-| `00_get_data.R` | Download ALL monthly transfer CSVs from SharePoint into local data folder |
-| `01_load_and_write_to_sql.R` | Batch processing script for historical data:<br>- Processes 93 CSV files in configurable batches (default: 5 files)<br>- Uses streaming reads with 200k row chunks to manage memory<br>- Accumulates 2-3 chunks before writing to reduce SQL round trips<br>- Wraps each batch in SQL transaction for atomicity<br>- Creates timestamped snapshots after each successful batch<br>- Uploads snapshots to SharePoint for audit trail<br>- Updates checkpoint after each commit<br>- Logs detailed progress (chunk counts, row counts, timestamps)<br>- Rolls back and stops on any error to maintain consistency<br>- **Run once during initial setup** |
-| `02_verification.R` | Post-load validation suite:<br>- Reads checkpoint file to get list of loaded files<br>- Processes files in tiny chunks (1 at a time) to avoid SQL timeout<br>- **Check 1:** Verifies each file exists in SQL<br>- **Check 2:** Validates date columns (`stat_date`, `processingdt`, `maintcreatedt`) have no NULLs<br>- **Check 3:** Compares SQL row counts against source CSV line counts<br>- Uses fast line counting (streaming, no parsing)<br>- Generates comprehensive summary report<br>- Flags any discrepancies for investigation |
+| `00_get_data.R` | Download all monthly transfer CSVs from SharePoint into local data folder |
+| `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table<br>
+stg.aemo_transfers using a chunk-streamed ingestion pipeline<br> **Run once during initial setup** |
+| `02_verification.R` | Verify that every CSV in the checkpoint has been successfully loaded into<br>
+SQL with correct row counts and non-null date fields |
 
 ---
 
@@ -78,13 +80,15 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 | Script Name | Description |
 |------------|-------------|
-| `00_run_all.R` | **Primary entry point** - Executes all scripts below |
-| `00_run_completion.R` | **Completion pipeline** - Loads validated data to SQL, prepares reporting data, and generates HTML report. Run manually after fixing validation failures |
-| `01_config.R` | Configuration and environment setup:<br>- Loads all required R packages<br>- Defines database connection parameters **⚠️ Update `UID` with your email**<br>- Specifies SharePoint paths for data sources and snapshots<br>- Sets local timezone to Australia/Melbourne |
-| `02_get_new_month_data.R` | SharePoint data retrieval:<br>- Connects to ESC SharePoint site using Microsoft365R<br>- Lists all CSV files in configured data folder<br>- Identifies newest file by `lastModifiedDateTime`<br>- Clears local `02_data/` folder to prevent confusion<br>- Downloads latest monthly transfer file<br>- Sets global variable `new_data_file` for downstream scripts |
-| `04_check_retailer_ids.R` | **Validation checkpoint** - Data quality gate (runs BEFORE SQL load):<br>- Reads the newly downloaded CSV from `02_data/`<br>- Retrieves current lookup tables from SQL<br>- **M71 validation:** Checks FRMP exists in `participant_id` lookup<br>- **M57A validation:** Checks FRMP and NEWFRMP exist in `corp_id` lookup<br>- Generates summary report of missing IDs<br>- **⚠️ Stops pipeline execution if validation fails**<br>- Outputs detailed error report to `04_outputs/missing_ids/`<br>- Provides remediation instructions for contacting AEMO<br>- **Only proceeds to SQL load if validation passes** |
-| `03_load_data_sql.R` | Data loading and transformation (runs AFTER successful validation):<br>- Reads validated CSV using streaming for memory efficiency<br>- Transforms column names to snake_case<br>- Parses Australian date formats (d/m/Y H:M)<br>- Converts data types (integers, bits, dates)<br>- Adds metadata columns (`source_file`, `date_imported`)<br>- Appends to `stg.aemo_transfers` in batches<br>- Creates timestamped snapshot (local + SharePoint)<br>- Updates checkpoint file to track loaded files<br>- Executes `dbo.usp_upsert_aemo_transfers_data` to refresh production table |
-| `05_read_updated_transfer_data.R` | Report data preparation:<br>- Connects to SQL Server database<br>- Queries `dbo.vw_aemo_transfers` (enriched view with lookups)<br>- Retrieves all required columns for reporting<br>- Saves result as `02_data/transfers_raw.rds` for R Markdown report<br>- Provides fast, serialized data access for report rendering |
+| `00_run_all.R` | **Primary entry point**<br>Executes all scripts below |
+| `00_run_completion.R` | **Completion pipeline**<br>Loads validated data to SQL, prepares reporting data, and generates HTML report. Run manually after fixing validation failures |
+| `01_config.R` | **Configuration and environment setup**<br>Loads all required R packages, sets up global folder<br>
+pathways, defines sql and sharepoint connection parameters and writes resuablel helper functions |
+| `02_get_new_month_data.R` | **SharePoint data retrieval**<br>Downloads newest monthly transfer data CSV from SharePoint |
+| `03_check_retailer_ids.R` | **Validation checkpoint**<br>Validate FRMP and NEWFRMP IDs in the latest monthly AEMO CSV |
+| `04_load_data_sql.R` | **Data loading and transformation**<br> After successful ID validation, loads the newest<br> monthly transfer CSV into SQL staging table and then runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
+| `05_read_updated_transfer_data.R` | **Report data preparation**<br>Read updated transfer data from SQL view (dbo.vw_aemo_transfers) into R |
+| `transfers_report.html | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`
 
 ---
 
@@ -93,8 +97,8 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 | Script Name | Description |
 |------------|-------------|
-| `update_retailers_lookup.R` | Retailer ID mapping refresh:<br>- Downloads `RetailersLookup.xlsx` from SharePoint AEMO folder<br>- Reads "CorporationID Lookup" sheet<br>- Expects columns: `PARTICIPANTID`, `CORPORATIONID`, `ESC RetailerCommonID`<br>- Creates two lookup tables:<br>&nbsp;&nbsp;• `dbo.aemo_corpid_lookup` (corp_id → licence_common_id)<br>&nbsp;&nbsp;• `dbo.aemo_participantid_lookup` (participant_id → licence_common_id)<br>- Truncates and reloads tables (full refresh strategy)<br>- Logs row counts for verification<br>- **Run when AEMO provides updated retailer mappings** |
-| `update_crc_lookup.R` | Customer Role Code definitions refresh:<br>- Downloads `CRC_lookup.xlsx` from SharePoint AEMO folder<br>- Reads "Lookup" sheet<br>- Parses CRC metadata (code, event, description, reporting group)<br>- Truncates and reloads `dbo.aemo_crc_lookup`<br>- Used for transfer event classification and reporting |
+| `update_retailers_lookup.R` | Refresh an AEMO → ESC retailer lookup table (dbo.aemo_retailer_lookup) in SQL Server<br> **Run when AEMO provides updated retailer mappings** |
+| `update_crc_lookup.R` | Refresh an Change Request Code lookup table (dbo.aemo_crc_lookup) in SQL Server |
 
 ---
 
@@ -107,15 +111,7 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 ---
 
-### Reporting
-
-| File Name | Description |
-|-----------|-------------|
-| `transfers_report.Rmd` | R Markdown analytical report:<br>**Data Visualizations:**<br>- Interactive Plotly charts with drill-down (monthly/quarterly/yearly)<br>- Time series of transfer trends by retailer size<br>- Breakdown by transfer type (Change Retailer, Move-in, Other)<br>- Sankey diagrams showing retailer-to-retailer flows<br>- Heatmap matrices of transfer movements<br>- Net change analysis (absolute and normalized)<br>- Top 5 move-in retailers over 12 months<br>- Top 10 retailers gaining/losing customers<br>**Features:**<br>- Tabbed interface for exploring different time periods<br>- Toggle buttons for absolute vs. percentage views<br>- Color-coded by retailer size (Small/Medium/Large)<br>- Collapsible summary tables<br>- ESC brand styling (colors, fonts)<br>- Responsive design for viewing on different devices |
-
----
-
-## Set-Up Steps
+## Running the Project
 
 ### Initial Setup (One-Time)
 
