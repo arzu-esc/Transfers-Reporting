@@ -201,13 +201,11 @@ This executes in sequence:
       ```r 
       source("03_lookup_changes/update_retailers_lookup.R")
       ```
-      
     5. Run retailer id validation script again to make sure mapping is working: 
     
       ```r 
       source("01_monthly_scripts/04_check_retailer_ids.R")
       ```
-      
     6. Run 00_run_completion.R to complete the pipeline if validation passes:
     
       ```r 
