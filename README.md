@@ -68,10 +68,8 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 | Script Name | Description |
 |------------|-------------|
 | `00_get_data.R` | Download all monthly transfer CSVs from SharePoint into local data folder |
-| `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table<br>
-stg.aemo_transfers using a chunk-streamed ingestion pipeline<br> **Run once during initial setup** |
-| `02_verification.R` | Verify that every CSV in the checkpoint has been successfully loaded into<br>
-SQL with correct row counts and non-null date fields |
+| `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table stg.aemo_transfers using a chunk-streamed ingestion pipeline. **Run once during initial setup** |
+| `02_verification.R` | Verify that every CSV in the checkpoint has been successfully loaded into SQL with correct row counts and non-null date fields |
 
 ---
 
