@@ -19,20 +19,20 @@ Last updated: 2025-11-19
 
 **Repository layout**
 - **`00_mass_upload_scripts/`**: Scripts and raw data used for bulk loading many historical CSVs to SQL. Key files:
-  - `00_get_data.R` — download newest CSV from SharePoint (used for manual / mass loads).
-  - `01_load_and_write_to_sql.R` — batch loader for raw CSV files into SQL with transformations and checkpoints.
+  - `00_get_data.R` — download **all** CSVs from SharePoint to `data/raw/` (used for mass/historical loads).
+  - `01_load_and_write_to_sql.R` — batch loader for raw CSV files into SQL with transformations and checkpoints (5 files per batch, 200k rows per chunk).
   - `03_verification.R` — verification checks to compare loaded rows and detect null-date issues.
-  - `data/raw/` — source CSVs for mass loads.
-  - `data/processed/checkpoints/transfers_completed_files.csv` — checkpoint of files successfully loaded.
+  - `data/raw/` — source CSVs for mass loads (populated by `00_get_data.R`).
+  - `data/processed/checkpoints/` — historical checkpoint storage for mass loads.
 
-- **`01_monthly_scripts/`**: Scripts used for the monthly pipeline (preferred for regular monthly refreshes).
-  - `00_run_all.R` — top-level orchestrator that sources the other monthly scripts.
-  - `01_config.R` — project configuration (SQL and SharePoint connection settings, colours, etc.).
-  - `02_get_new_month_data.R` — download the newest monthly CSV from SharePoint into `02_data/`.
-  - `03_load_data_sql.R` — clean and append the newest monthly CSV to `stg.aemo_transfers`, save snapshots and update checkpoints.
-  - `04_check_retailer_ids.R` — validate FRMP/NEWFRMP IDs against SQL lookup tables.
-  - `05_read_updated_transfer_data.R` — read final view `dbo.vw_aemo_transfers` into R and save an RDS snapshot.
-  - `transfer_charts.R` — chart generation helpers (Sankey and other visuals).
+- **`01_monthly_scripts/`**: Scripts used for the monthly pipeline (preferred for regular monthly refreshes). All scripts source `01_config.R` first for shared config.
+  - `01_config.R` — global configuration: folder paths, SQL/SharePoint connection details, timezone, helper functions (`melbourne_now_naive()`, `as_bit()`).
+  - `00_run_all.R` — orchestrator that sources scripts 01–05 in sequence to run the full monthly pipeline.
+  - `02_get_new_month_data.R` — download the newest monthly CSV from SharePoint into `02_data/`, replacing any previous file.
+  - `03_load_data_sql.R` — clean, transform, and append the monthly CSV to `stg.aemo_transfers`; save snapshots locally and to SharePoint; update checkpoint.
+  - `04_check_retailer_ids.R` — validate FRMP/NEWFRMP IDs in the monthly CSV against SQL lookup tables; output missing IDs summary.
+  - `05_read_updated_transfer_data.R` — read the final view `dbo.vw_aemo_transfers` and save as RDS snapshot (`02_data/transfers_raw.rds`).
+  - `transfer_charts.R` — chart generation helpers for Sankey and other visualizations (used by reporting Rmd).
 
 - **`02_data/`**: Working folder for the monthly pipeline. Contains the most recent downloaded CSV and snapshot RDS outputs.
 
@@ -100,8 +100,9 @@ Notes:
 - Store secrets securely and avoid committing `.Renviron` to source control.
 
 **Checkpoints & snapshots**
-- The mass loader writes checkpoint records to `00_mass_upload_scripts/data/processed/checkpoints/transfers_completed_files.csv` to track which CSVs were successfully loaded to SQL.
-- Monthly snapshots are saved in `02_data/snapshots/` when `03_load_data_sql.R` runs.
+- **Mass load checkpoints**: `05_checkpoints/transfers_completed_files.csv` tracks which files have been loaded via the mass-load pipeline.
+- **Monthly snapshots**: Saved to `02_data/snapshots/` when `03_load_data_sql.R` runs (both local CSV and upload to SharePoint).
+- Checkpoints are read before processing to skip already-loaded files and avoid duplicates.
 
 **Troubleshooting**
 - If a SharePoint connection fails, confirm `SHAREPOINT_SITE_URL` and `SHAREPOINT_DATA_FOLDER` values and that `Microsoft365R` can access your SharePoint via AAD.

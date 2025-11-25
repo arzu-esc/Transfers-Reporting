@@ -3,7 +3,6 @@
 # Purpose: Load the newest monthly transfer CSV into SQL staging table
 # Description: 
 #   - Uses `new_data_file` created by 02_get_new_month_data.R
-#   - Cleans + type-converts monthly transfer CSV
 #   - Appends data to stg.aemo_transfers
 #   - Saves snapshot locally + uploads to SharePoint
 #   - Updates checkpoint of loaded files
@@ -12,37 +11,10 @@
 # Last updated: 2025-11-18
 # ==============================================================================
 
-# ---------------------------------------------------------------------
-# 1. Config settings
-# ---------------------------------------------------------------------
 
-# File locations
-monthly_dir     <- "02_data"
-mass_update_dir  <- "00_mass_upload+scripts"
-
-checkpoint_dir  <- file.path(mass_update_dir, "checkpoints")
-checkpoint_path <- file.path(checkpoint_dir, "transfers_completed_files.csv")
-
-local_snapshot_dir <- file.path(monthly_dir, "snapshots")
-dir_create(local_snapshot_dir, recurse = TRUE)
-
-# Local timezone
-local_tz <- "Australia/Melbourne"
-
-# SQL destination
-schema <- "stg"
-table  <- "aemo_transfers"
-tbl_id <- DBI::Id(schema = schema, table = table)
-
-# helper for consistent import timestamp
-melbourne_now_naive <- function() {
-  tt <- lubridate::with_tz(Sys.time(), tzone = local_tz)
-  as.POSIXct(strftime(tt, "%Y-%m-%d %H:%M:%S"), tz = "UTC")
-}
-
-# ---------------------------------------------------------------------
-# 2. Determine which file to load (only one should exist)
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 1. Validate that 02_get_new_month_data.R ran
+# ==============================================================================
 
 if (!exists("new_data_file", envir = .GlobalEnv)) {
   stop("new_data_file not found. Ensure 02_get_new_month_data.R was run first.")
@@ -53,9 +25,9 @@ source_name <- basename(file_path)
 
 cli::cli_alert_info("Loading file from 02_get_new_month_data.R → {source_name}")
 
-# ---------------------------------------------------------------------
-# 3. SQL connection
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 2. Connect to SQL Server
+# ==============================================================================
 
 con <- DBI::dbConnect(
   odbc::odbc(),
@@ -72,16 +44,9 @@ on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
 
 sql_cols <- DBI::dbListFields(con, tbl_id)
 
-# ---------------------------------------------------------------------
-# 4. Helpers for conversion
-# ---------------------------------------------------------------------
-
-as_bit <- function(x) {
-  y <- trimws(tolower(as.character(x)))
-  out <- ifelse(y %in% c("1", "true", "t", "yes", "y"), 1L,
-                ifelse(y %in% c("0", "false", "f", "no", "n"), 0L, NA_integer_))
-  as.integer(out)
-}
+# ==============================================================================
+# 3. Transform function (specific to monthly CSV format)
+# ==============================================================================
 
 transform_monthly <- function(df, source_file) {
   if (nrow(df) == 0) return(df)
@@ -127,14 +92,12 @@ transform_monthly <- function(df, source_file) {
   df
 }
 
-# ---------------------------------------------------------------------
-# 5. Read → Transform → Append to SQL
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 4. Read → Transform → Append to SQL
+# ==============================================================================
 
 cli::cli_alert_info("Reading local CSV: {file_path}")
-raw_df <- readr::read_csv(
-  file_path,
-  col_types = cols(.default = col_character()),
+raw_df <- readr::read_csv(file_path, col_types = cols(.default = col_character()),
   show_col_types = FALSE
 )
 
@@ -153,33 +116,27 @@ DBI::dbAppendTable(
 
 cli::cli_alert_success("✓ Appended {rows_n} rows.")
 
-# ---------------------------------------------------------------------
-# 6. Save snapshot (local + SharePoint)
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 5. Save snapshot (local + SharePoint)
+# ==============================================================================
 
 ts <- format(with_tz(now(tzone = local_tz), local_tz), "%Y%m%d_%H%M%S")
 local_csv_path <- file.path(local_snapshot_dir, paste0(source_name, "_snapshot_", ts, ".csv"))
 
-readr::write_csv(monthly_df, local_csv_path, na = "")
+write_csv(monthly_df, local_csv_path, na = "")
 cli::cli_alert_info("Saved local CSV snapshot: {local_csv_path}")
 
 if (nzchar(sharepoint_site_url) && nzchar(sharepoint_import_folder)) {
 
-  SITE  <- get_sharepoint_site(site_url = sharepoint_site_url)
-  DRIVE <- SITE$get_drive("Documents")
-
   remote_csv_path <- paste(sharepoint_import_folder, basename(local_csv_path), sep = "/")
   DRIVE$upload_file(src = local_csv_path, dest = remote_csv_path)
-
   cli::cli_alert_success("✓ Uploaded CSV snapshot to SharePoint: {remote_csv_path}")
 
-} else {
-  cli::cli_alert_warning("SharePoint upload skipped: SHAREPOINT_SITE_URL or SHAREPOINT_IMPORT_FOLDER not set.")
 }
 
-# ---------------------------------------------------------------------
-# 7. Update checkpoint
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 6. Update checkpoint
+# ==============================================================================
 
 new_cp <- tibble(source_file = source_name)
 
@@ -194,9 +151,9 @@ if (file_exists(checkpoint_path)) {
 
 cli::cli_alert_success("Monthly load complete. Checkpoint updated → {checkpoint_path}")
 
-# ---------------------------------------------------------------------
-# 8. Run stored procedure to refresh dbo.aemo_transfers_data with new data
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 7. Run stored procedure to refresh dbo.aemo_transfers_data with new data
+# ==============================================================================
 
 DBI::dbExecute(
   con,

@@ -1,7 +1,8 @@
 # ====================================================
 # Script: 00_run_all.R
 # Purpose: Run all scripts in order
-# Description: This script sequentially runs all the necessary scripts to generate the monthly transfer report.
+# Description: This script sequentially runs all the necessary scripts to 
+#   generate the monthly transfer report.
 # Author: Arzu Khanna
 # Last updated: 2025-11-19
 # ====================================================

@@ -1,4 +1,29 @@
-# 2_load_and_write_to_sql.R -------------------------------------
+# ==============================================================================
+# Script: 01_load_and_write_to_sql.R
+
+# Purpose: Load all historical AEMO transfer CSVs from:
+#       00_mass_upload_scripts/data/raw/ into the SQL staging table
+#       stg.aemo_transfers using a chunk-streamed ingestion pipeline.
+
+# Description:
+#   - Reads all raw CSVs in batches (default 5 files per batch) with resume-safe
+#     check pointing so only new/unprocessed files are loaded.
+#   - Streams each file in large row-chunks (e.g., 200k rows), transforms each
+#     chunk (type coercion, Australian date parsing, SQL column alignment), and
+#     appends into SQL Server.
+#   - If any file fails, the whole batch is rolled back.
+#   - Generates a consolidated batch snapshot (CSV) and stores it locally, then
+#      uploads the snapshot to SharePoint.
+#   - Maintains data lineage by tagging `source_file` and `date_imported`
+#
+# Author: Arzu Khanna
+# Last updated: 2025-11-25
+# ==============================================================================
+
+# ==============================================================================
+# 1. LOAD PACKAGES
+# ==============================================================================
+
 suppressPackageStartupMessages({
   library(readr)
   library(dplyr)
@@ -11,33 +36,39 @@ suppressPackageStartupMessages({
   library(openxlsx)
 })
 
-# ── Configuration -------------------------------------------------------------
-raw_dir         <- "00_mass_upload_scripts/data/raw"
-batch_size      <- 5L                                # 5 files per batch (93 files = 19 batches)
-row_chunk_size  <- 200000L                          # Larger chunks for faster processing
-checkpoint_dir  <- "00_mass_upload_scripts/data/processed/checkpoints"
-checkpoint_path <- file.path(checkpoint_dir, "transfers_completed_files.csv")
-local_tz        <- "Australia/Melbourne"
-do_checkpoint   <- TRUE # ← don't mark files complete until you’re happy
+# ==============================================================================
+# 2. CONFIGURATION
+#    - Defines all file paths, environment variables, batch sizes,
+#      checkpoint locations and time conversion helpers.
+# ==============================================================================
 
+raw_dir         <- "00_mass_upload_scripts/data/raw"
+batch_size      <- 5L                            
+row_chunk_size  <- 200000L     
+
+checkpoint_dir  <- "05_checkpoints"
+checkpoint_path <- file.path(checkpoint_dir, "transfers_completed_files.csv")
+
+local_tz        <- "Australia/Melbourne"
+do_checkpoint   <- TRUE
+
+# Helper: produce Melbourne-local time stamps, stored as naive SQL DATETIME2
 melbourne_now_naive <- function() {
-  # Convert "now" to Melbourne, keep seconds, then drop TZ (naive DATETIME2)
   tt <- lubridate::with_tz(Sys.time(), tzone = local_tz)
   as.POSIXct(strftime(tt, "%Y-%m-%d %H:%M:%S"), tz = "UTC")
 }
 
-# Snapshot configuration
-sharepoint_site_url     <- Sys.getenv("SHAREPOINT_SITE_URL")
+# Sharepoint configuration
+sharepoint_site_url      <- Sys.getenv("SHAREPOINT_SITE_URL")
 sharepoint_import_folder <- Sys.getenv("SHAREPOINT_IMPORT_FOLDER") |> 
   gsub('^["\']|["\']$', "", x = _)
-save_format <- "csv"  # which formats to create locally before upload
 
-# Destination (SQL Server)
-schema <- "stg"
-table  <- "aemo_transfers"
-tbl_id <- DBI::Id(schema = schema, table = table)
+# ==============================================================================
+# 3. SQL CONNECTION
+#    - Uses .Renviron values to authenticate.
+#    - Enables MARS, large packet size, and timeout = 0 for long-running loads.
+# ==============================================================================
 
-# ── SQL connection from .Renviron --------------------------------------------
 driver            <- Sys.getenv("SQL_DRIVER")
 sql_server_name   <- Sys.getenv("SQL_SERVER")
 sql_database_name <- Sys.getenv("SQL_DATABASE")
@@ -62,14 +93,23 @@ con <- dbConnect(
 )
 on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
 
-# ── Ensure schema/table exist (create once if missing) ------------------------
+# ==============================================================================
+# 4. SCHEMA + TABLE CREATION
+#    - Ensures the staging schema/table exist.
+#    - Defines expected SQL structure for safe ingestion.
+# ==============================================================================
+
+schema <- "stg"
+table  <- "aemo_transfers"
+tbl_id <- DBI::Id(schema = schema, table = table)
+
 # Create schema if missing
 DBI::dbExecute(con, sprintf("
 IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = N'%s')
     EXEC('CREATE SCHEMA [%s]');
 ", schema, schema))
 
-# Expected table schema (matches your earlier definition, plus source_file)
+# Expected table structure
 fields <- c(
   id_mts2           = "INT",
   stat_date         = "DATETIME2",
@@ -99,6 +139,7 @@ fields <- c(
   source_file       = "VARCHAR(255)"
 )
 
+# Create table if missing
 if (!DBI::dbExistsTable(con, tbl_id)) {
   DBI::dbCreateTable(con, name = tbl_id, fields = fields)
   message("✓ Created table ", schema, ".", table)
@@ -106,12 +147,18 @@ if (!DBI::dbExistsTable(con, tbl_id)) {
   message("Table exists; will append.")
 }
 
-# Capture SQL column order to align chunks before append
+# Get SQL column order for alignment
 sql_cols <- DBI::dbListFields(con, tbl_id)
 
-# ── List input files & checkpoint --------------------------------------------
+# ==============================================================================
+# 5. LIST INPUT FILES + CHECKPOINT
+#    - Determines which files still need to be loaded.
+# ==============================================================================
+
 if (!dir_exists(raw_dir)) stop("Raw folder not found: ", raw_dir)
+
 csv_files <- dir_ls(raw_dir, glob = "*.csv", recurse = FALSE)
+
 if (!length(csv_files)) stop("No CSV files found in ", raw_dir)
 
 dir_create(checkpoint_dir, recurse = TRUE)
@@ -122,10 +169,11 @@ if (file_exists(checkpoint_path)) {
   completed <- unique(na.omit(completed))
 }
 
-# Remaining files to process
+# Identify remaining unprocessed files
 all_files <- path_file(csv_files)
 names(csv_files) <- all_files
 remaining_files <- setdiff(all_files, completed)
+
 if (!length(remaining_files)) {
   cli::cli_alert_success("Nothing to do. All {length(all_files)} files already loaded per checkpoint.")
   quit(save = "no")
@@ -135,9 +183,11 @@ if (!length(remaining_files)) {
 batches <- split(remaining_files, ceiling(seq_along(remaining_files) / batch_size))
 cli::cli_alert_info("Loading {length(remaining_files)} files in {length(batches)} batches of up to {batch_size}.")
 
-# ── Helpers -------------------------------------------------------------------
+# ==============================================================================
+# 6. HELPER FUNCTIONS (bit conversion, date parsing, schema alignment)
+# ==============================================================================
 
-# Safe boolean coercion for BIT columns
+# Convert yes/no/T/F/1/0 into SQL BIT
 as_bit <- function(x) {
   y <- trimws(tolower(as.character(x)))
   out <- ifelse(y %in% c("1", "true", "t", "yes", "y"), 1L,
@@ -145,8 +195,9 @@ as_bit <- function(x) {
   as.integer(out)
 }
 
-# FIXED: Transform chunk with correct Australian date parsing
+# Transform a chunk: clean names, parse dates, coerce types, ensure all SQL cols exist
 transform_chunk <- function(df_chunk, source_file) {
+  
   if (nrow(df_chunk) == 0) return(df_chunk)
   
   df_chunk <- janitor::clean_names(df_chunk)
@@ -156,7 +207,7 @@ transform_chunk <- function(df_chunk, source_file) {
     date_imported = melbourne_now_naive()
   )
   
-  # Parse Australian date format (d/m/Y H:M - no seconds)
+  # Mixed-format AU date parsing
   date_cols <- intersect(c("stat_date","processingdt","maintcreatedt"), names(df_chunk))
   if (length(date_cols)) {
     df_chunk <- df_chunk %>%
@@ -177,13 +228,16 @@ transform_chunk <- function(df_chunk, source_file) {
       }))
   }
   
+  # Coerce integer fields
   if ("id_mts2" %in% names(df_chunk))   df_chunk$id_mts2   <- suppressWarnings(as.integer(df_chunk$id_mts2))
   if ("stat_value" %in% names(df_chunk))df_chunk$stat_value<- suppressWarnings(as.integer(df_chunk$stat_value))
   
+  # BIT fields
   for (bn in c("newlr","mdp","mpb","misc2","misc3")) {
     if (bn %in% names(df_chunk)) df_chunk[[bn]] <- as_bit(df_chunk[[bn]])
   }
   
+  # Ensure all SQL columns exist
   missing_cols <- setdiff(sql_cols, names(df_chunk))
   if (length(missing_cols)) {
     for (m in missing_cols) {
@@ -201,13 +255,17 @@ transform_chunk <- function(df_chunk, source_file) {
   df_chunk
 }
 
-# OPTIMIZED: Streaming append with chunk accumulation and frequent logging
+# ==============================================================================
+# 7. STREAMED CHUNK INGESTION FUNCTION
+#    - Reads rows in chunks, transforms them, and accumulates before writing.
+# ==============================================================================
+
 append_one_file_streamed <- function(con, tbl_id, file_path, chunk_rows = row_chunk_size, log_every = 1L) {
   sf <- fs::path_file(file_path)
   rows_in_file <- 0L
   chunks_done  <- 0L
   
-  # Accumulate 2-3 chunks before writing to reduce round trips
+  # Collect 2 chunks before writing → faster ingestion
   accumulated_chunks <- list()
   accumulation_limit <- 2  # Write every 2 chunks (balance between speed and feedback)
   
@@ -267,7 +325,13 @@ append_one_file_streamed <- function(con, tbl_id, file_path, chunk_rows = row_ch
   rows_in_file
 }
 
-# ── Main loop -----------------------------------------------------------------
+# ==============================================================================
+# 8. BATCH LOOP
+#    - Wraps each batch in a SQL transaction.
+#    - If any file fails → full rollback.
+#    - Creates batch snapshots (local + optional SharePoint upload).
+# ==============================================================================
+
 use_cli <- interactive() && requireNamespace("cli", quietly = TRUE)
 if (use_cli) options(cli.dynamic = TRUE)
 
@@ -293,7 +357,7 @@ for (bi in seq_along(batches)) {
       f  <- files_batch[[i]]
       fp <- csv_files[[f]]
       
-      # 1) STREAMED append to SQL (big files) — your function
+      # 1. Stream file into SQL
       rows_loaded <- append_one_file_streamed(
         con      = con,
         tbl_id   = tbl_id,
@@ -303,7 +367,7 @@ for (bi in seq_along(batches)) {
       total_rows <- total_rows + rows_loaded
       files_done <- c(files_done, f)
       
-      # 2) MANDATORY SNAPSHOT: re-read full file once (non-streamed) for SharePoint/logging
+      # 2. Re-read full file once to build snapshot record
       snap_df <- readr::read_csv(
         fp,
         col_types = cols(.default = col_character()),
@@ -312,6 +376,7 @@ for (bi in seq_along(batches)) {
       snap_df <- transform_chunk(janitor::clean_names(snap_df), source_file = f)
       batch_data[[f]] <- snap_df
       
+      # 3. Update progress bar
       if (use_cli) {
         cli::cli_progress_update(
           id = pb, set = i,
@@ -323,6 +388,10 @@ for (bi in seq_along(batches)) {
     }
     ok <- TRUE
   }, silent = FALSE)
+  
+  # --------------------------------------------------------------------------
+  # 8.1 Commit or Rollback
+  # -------------------------------------------------------------------------
   
   if (ok) {
     DBI::dbCommit(con)
@@ -377,5 +446,9 @@ for (bi in seq_along(batches)) {
     stop("Stopping after rollback to keep state consistent.", call. = FALSE)
   }
 }
+
+# ==============================================================================
+# 9. COMPLETION MESSAGE
+# ==============================================================================
 
 cli::cli_alert_success("Done. Checkpoint at {checkpoint_path} records completed files.")

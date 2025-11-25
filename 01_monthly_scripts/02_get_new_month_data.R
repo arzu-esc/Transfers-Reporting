@@ -12,26 +12,17 @@
 
 # ====================================================
 
-# ---------------------------------------------------------------------
+# ==============================================================================
 # 1. Ensure local folder 02_data exists to store data in
-# ---------------------------------------------------------------------
+# ==============================================================================
 
-local_monthly_dir <- "02_data"
-
-if (!dir_exists(local_monthly_dir)) {
-  dir_create(local_monthly_dir, recurse = TRUE)
-} else {
-  # wipe anything that was there before
-  dir_delete(local_monthly_dir)
-  dir_create(local_monthly_dir, recurse = TRUE)
+if (!dir_exists(local_monthly_data)) {
+  dir_create(local_monthly_data, recurse = TRUE)
 }
 
-# ---------------------------------------------------------------------
+# ==============================================================================
 # 2. Connect to SharePoint
-# ---------------------------------------------------------------------
-
-SITE  <- get_sharepoint_site(site_url = sharepoint_url)
-DRIVE <- SITE$get_drive("Documents")
+# ==============================================================================
 
 # list items in the configured folder
 items <- DRIVE$list_items(sharepoint_data_folder)
@@ -44,9 +35,9 @@ if (nrow(csv_items) == 0) {
   stop("No CSV files found in SharePoint folder: ", sharepoint_data_folder)
 }
 
-# ---------------------------------------------------------------------
+# ==============================================================================
 # 3. Pick the newest monthly transfer CSV file
-# ---------------------------------------------------------------------
+# ==============================================================================
 
 # Microsoft365R usually returns lastModifiedDateTime in the data frame
 
@@ -65,11 +56,11 @@ nm     <- newest$name
 
 cli::cli_alert_info("Newest CSV in SharePoint is: {nm}")
 
-# ---------------------------------------------------------------------
-# 4. Download the new file to 02_data
-# ---------------------------------------------------------------------
+# ==============================================================================
+# 4. Download the new file to 02_data and name it 'new_data_file'
+# ==============================================================================
 
-dest <- fs::path(local_monthly_dir, nm)
+dest <- fs::path(local_monthly_data, nm)
 
 cli::cli_progress_step(
   "Downloading newest CSV → {dest}",
