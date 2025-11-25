@@ -171,12 +171,14 @@ This executes in sequence:
 2. **AEMO retailer IDs missing from retailer look up**
 
   **Steps to take:**
+  
     1. Review the missing_ids in `04_outputs/missing_ids`
     
     ```r
     missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
     View(missing_ids)
     ```
+    
     This shows:
       - Which stat type has unmapped IDs (M71 or M57A)
       - Which field is affected (FRMP or NEWFRMP)
@@ -240,50 +242,6 @@ rmarkdown::render("transfers_report.Rmd")
 - [ ] Latest month appears in visualisations
 - [ ] Snapshot uploaded to SharePoint: `5 - Data Repository/AEMO Transfers/Imported/`
 - [ ] Checkpoint updated with new file
-
-**SQL Verification Queries:**
-```R
-con <- DBI::dbConnect(odbc::odbc(), 
-                      Driver = "ODBC Driver 17 for SQL Server",
-                      Server = "esc-dev-ssdw-01.database.windows.net",
-                      Database = "esc-dev-poc-01",
-                      Authentication = "ActiveDirectoryInteractive")
-
-# Check latest month in staging
-DBI::dbGetQuery(con, "
-  SELECT MAX(stat_date) as latest_date, 
-         COUNT(*) as total_rows,
-         MAX(date_imported) as import_timestamp,
-         source_file
-  FROM stg.aemo_transfers
-  GROUP BY source_file
-  ORDER BY MAX(stat_date) DESC
-")
-
-# Check production table updated
-DBI::dbGetQuery(con, "
-  SELECT MAX(stat_date) as latest_date,
-         COUNT(*) as total_rows  
-  FROM dbo.aemo_transfers_data
-")
-
-# Verify enrichment (retailer names populated)
-DBI::dbGetQuery(con, "
-  SELECT TOP 100 
-    stat_date,
-    FRMP_Retailer_name,
-    NEWFRMP_Retailer_name,
-    FRMP_Retailer_size,
-    transfer_type,
-    stat_value
-  FROM dbo.vw_aemo_transfers
-  WHERE stat_date = (SELECT MAX(stat_date) FROM dbo.vw_aemo_transfers)
-  ORDER BY stat_date DESC
-")
-
-DBI::dbDisconnect(con)
-```
-
 
 **Troubleshooting**
 - If a SharePoint connection fails, confirm `SHAREPOINT_SITE_URL` and `SHAREPOINT_DATA_FOLDER` values and that `Microsoft365R` can access your SharePoint via AAD.
