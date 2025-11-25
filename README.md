@@ -163,56 +163,58 @@ This executes in sequence:
 
 **Two possible outcomes:**
 
-1. **All retailer IDs map correctly** and the rest of the scripts execute automatically:
+3.1 **All retailer IDs map correctly** and the rest of the scripts execute automatically:
   - `04_load_data_sql.R`
   - `05_read_updated_transfer_data.R`
   - `transfers_report.Rmd` --> Generates `transfers_report.html`
 
-2. **AEMO retailer IDs missing from retailer look up**
+3.2 **AEMO retailer IDs missing from retailer look up**
 
-  **Steps to take:**
+**Steps to take:**
   
-    1. Review the missing_ids in `04_outputs/missing_ids`
+a. Review the missing_ids in `04_outputs/missing_ids`
     
-    ```r
-    missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
-    View(missing_ids)
-    ```
+```r
+missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
+View(missing_ids)
+```
     
-    This shows:
-      - Which stat type has unmapped IDs (M71 or M57A)
-      - Which field is affected (FRMP or NEWFRMP)
-      - The actual unmapped ID values
+This shows:
+- Which stat type has unmapped IDs (M71 or M57A)
+- Which field is affected (FRMP or NEWFRMP)
+- The actual unmapped ID values
       
-    2. Contact AEMO and ask for:
-      - Updated participant ID list
-      - Updated participant and company ID mapping.
+b. Contact AEMO and ask for:
+- Updated participant ID list
+- Updated participant and company ID mapping.
       
-    3. Update **RetailersLookup.xlsx** with the new mapping.
-      - Navigate to SharePoint AEMO folder
-      - Open `RetailersLookup.xlsx`
-      - Add new rows for unmapped IDs
-      - Ensure all columns are complete:
-        - `PARTICIPANTID` - AEMO participant identifier
-        - `CORPORATIONID` - AEMO corporation identifier  
-        - `ESC RetailerCommonID` - ESC internal retailer ID
-      - Save and close file
+c. Update **RetailersLookup.xlsx** with the new mapping.
+- Navigate to SharePoint AEMO folder
+- Open `RetailersLookup.xlsx`
+- Add new rows for unmapped IDs
+- Ensure all columns are complete:
+- `PARTICIPANTID` - AEMO participant identifier
+ - `CORPORATIONID` - AEMO corporation identifier  
+- `ESC RetailerCommonID` - ESC internal retailer ID
+- Save and close file
     
-    4. Run script to Refresh SQL Lookup Table:
+d. Run script to Refresh SQL Lookup Table:
     
-      ```r 
-      source("03_lookup_changes/update_retailers_lookup.R")
-      ```
-    5. Run retailer id validation script again to make sure mapping is working: 
+```r 
+source("03_lookup_changes/update_retailers_lookup.R")
+```
+
+e. Run retailer id validation script again to make sure mapping is working: 
     
-      ```r 
-      source("01_monthly_scripts/04_check_retailer_ids.R")
-      ```
-    6. Run 00_run_completion.R to complete the pipeline if validation passes:
+```r 
+source("01_monthly_scripts/04_check_retailer_ids.R")
+```
+
+f. Run 00_run_completion.R to complete the pipeline if validation passes:
     
-      ```r 
-      source("00_run_completion.R")
-      ```
+```r 
+source("00_run_completion.R")
+```
 ---
 
 ### 7. Manually Regenerate Report (Optional)
