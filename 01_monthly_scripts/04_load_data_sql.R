@@ -1,5 +1,5 @@
 # ==============================================================================
-# Script: 03_load_data_sql.R
+# Script: 04_load_data_sql.R
 # Purpose: Load the newest monthly transfer CSV into SQL staging table
 # Description: 
 #   - Uses `new_data_file` created by 02_get_new_month_data.R
@@ -126,7 +126,7 @@ local_csv_path <- file.path(local_snapshot_dir, paste0(source_name, "_snapshot_"
 write_csv(monthly_df, local_csv_path, na = "")
 cli::cli_alert_info("Saved local CSV snapshot: {local_csv_path}")
 
-if (nzchar(sharepoint_site_url) && nzchar(sharepoint_import_folder)) {
+if (nzchar(sharepoint_url) && nzchar(sharepoint_import_folder)) {
 
   remote_csv_path <- paste(sharepoint_import_folder, basename(local_csv_path), sep = "/")
   DRIVE$upload_file(src = local_csv_path, dest = remote_csv_path)
