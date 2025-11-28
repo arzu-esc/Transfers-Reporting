@@ -51,6 +51,7 @@ This project is used to collect monthly AEMO (Australian Energy Market Operator)
 | `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table stg.aemo_transfers using a chunk-streamed ingestion pipeline.<br>**Run once during initial setup** |
 | `02_verification.R` | Verify that every CSV in the checkpoint has been successfully loaded into SQL with correct row counts and non-null date fields |
 
+<br>
 
 ### Monthly Update Pipeline (01_monthly_scripts/)
 **Purpose:** Routine monthly data ingestion and reporting
@@ -66,7 +67,7 @@ This project is used to collect monthly AEMO (Australian Energy Market Operator)
 | `05_read_updated_transfer_data.R` | **Report data preparation**<br>Read updated transfer data from SQL view (dbo.vw_aemo_transfers) into R |
 | `transfers_report.html` | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`<br>**Key AEMO Metrics Tracked**<br>- **M57A:** Transfer statistics (customer switches between retailers)<br>- **M71:** Active NMI (National Meter Identifier) counts per retailer |
 
----
+<br>
 
 ### Lookup Updates (03_lookup_changes/)
 **Purpose:** Maintain reference data for retailer identification
@@ -76,7 +77,7 @@ This project is used to collect monthly AEMO (Australian Energy Market Operator)
 | `update_retailers_lookup.R` | Refresh an AEMO → ESC retailer lookup table (dbo.aemo_retailer_lookup) in SQL Server<br>**Run when AEMO provides updated retailer mappings** |
 | `update_crc_lookup.R` | Refresh an Change Request Code lookup table (dbo.aemo_crc_lookup) in SQL Server |
 
----
+<br>
 
 ### Checkpoints & snapshots (05_checkpoints/ and 02_data/snapshots/)
 **Purpose:** Maintain a record of what has been loaded to SQL
@@ -97,6 +98,8 @@ This project is used to collect monthly AEMO (Australian Energy Market Operator)
 **2. Extract the contents of the zip folder using ‘7-zip File Manager’. To extract, use the password VIC_stat_19106350.**
 
 **3. Save the csv file into this [Sharepoint folder](<https://escvic.sharepoint.com/:f:/r/teams/IntelligenceandAnalysisESC/Shared Documents/3 - Services/AEMO MSATS Transfers data/Data?csf=1&web=1&e=vN9KrP>)**
+
+<br>
 
 ### Setting up this repo:
 
