@@ -2,9 +2,7 @@
 
 ## Overview
 
-Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfer CSVs from SharePoint, validate and load them into an Azure SQL staging table (`stg.aemo_transfers`), run verification checks and generate monthly outputs and charts.
-
----
+This project is used to collect monthly AEMO (Australian Energy Market Operator) retail transfer CSVs from SharePoint, validate and load them into an Azure SQL staging table (`stg.aemo_transfers`), run verification checks and generate monthly outputs and charts.
 
 ## Visualising the Pipeline
 
@@ -39,6 +37,8 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
   - AEMO monthly transfer data folder (source CSVs)
   - Import snapshots folder (audit trail)
   - Lookup files: `RetailersLookup.xlsx`, `CRC_lookup.xlsx`
+ 
+---
 
 ## Project Structure
 
@@ -48,10 +48,9 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 | Script Name | Description |
 |------------|-------------|
 | `00_get_data.R` | Download all monthly transfer CSVs from SharePoint into local data folder |
-| `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table stg.aemo_transfers using a chunk-streamed ingestion pipeline. **Run once during initial setup** |
+| `01_load_and_write_to_sql.R` | Load all historical AEMO transfer CSVs into the SQL staging table stg.aemo_transfers using a chunk-streamed ingestion pipeline.<br>**Run once during initial setup** |
 | `02_verification.R` | Verify that every CSV in the checkpoint has been successfully loaded into SQL with correct row counts and non-null date fields |
 
----
 
 ### Monthly Update Pipeline (01_monthly_scripts/)
 **Purpose:** Routine monthly data ingestion and reporting
@@ -74,7 +73,7 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 | Script Name | Description |
 |------------|-------------|
-| `update_retailers_lookup.R` | Refresh an AEMO → ESC retailer lookup table (dbo.aemo_retailer_lookup) in SQL Server<br> **Run when AEMO provides updated retailer mappings** |
+| `update_retailers_lookup.R` | Refresh an AEMO → ESC retailer lookup table (dbo.aemo_retailer_lookup) in SQL Server<br>**Run when AEMO provides updated retailer mappings** |
 | `update_crc_lookup.R` | Refresh an Change Request Code lookup table (dbo.aemo_crc_lookup) in SQL Server |
 
 ---
@@ -82,9 +81,10 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 ### Checkpoints & snapshots (05_checkpoints/ and 02_data/snapshots/)
 **Purpose:** Maintain a record of what has been loaded to SQL
 
-- **Mass load checkpoints**: `05_checkpoints/transfers_completed_files.csv` tracks which files have been loaded via the mass-load pipeline.
-- **Monthly snapshots**: Saved to `02_data/snapshots/` when `03_load_data_sql.R` runs (both local CSV and upload to SharePoint).
-- Checkpoints are read before processing to skip already-loaded files and avoid duplicates.
+| File Name | Description |
+|------------|-------------|
+| `05_checkpoints/transfers_completed_files.csv` | - Tracks which files have been loaded via the mass-load pipeline<br>- Checkpoints are read before processing to skip already-loaded files and avoid duplicates |
+| `02_data/snapshots/` | Saves a copy of what has been loaded into SQL |
 
 ---
 
@@ -99,7 +99,6 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 **3. Save the csv file into this [Sharepoint folder](<https://escvic.sharepoint.com/:f:/r/teams/IntelligenceandAnalysisESC/Shared Documents/3 - Services/AEMO MSATS Transfers data/Data?csf=1&web=1&e=vN9KrP>)**
 
 ### Setting up this repo:
-
 
 **4. Clone Repository**
    - Open RStudio
