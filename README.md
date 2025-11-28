@@ -92,11 +92,11 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 ### Save and extract the new monthly csv
 
-1. Open the email received from AEMO and save a copy of the zip folder on your PC
+**1. Open the email received from AEMO and save a copy of the zip folder on your PC**
 
-2. Extract the contents of the zip folder using ‘7-zip File Manager’. To extract, use the password VIC_stat_19106350.
+**2. Extract the contents of the zip folder using ‘7-zip File Manager’. To extract, use the password VIC_stat_19106350.**
 
-3. Save the csv file into this [Sharepoint folder](https://escvic.sharepoint.com/:f:/r/teams/IntelligenceandAnalysisESC/Shared Documents/3 - Services/AEMO MSATS Transfers data/Data?csf=1&web=1&e=vN9KrP)
+**3. Save the csv file into this [Sharepoint folder](<https://escvic.sharepoint.com/:f:/r/teams/IntelligenceandAnalysisESC/Shared Documents/3 - Services/AEMO MSATS Transfers data/Data?csf=1&web=1&e=vN9KrP>)**
 
 ### Setting up this repo:
 
