@@ -1,6 +1,6 @@
 # ====================================================
 # Script: 02_get_new_month_data.R
-# Purpose: Download the newest monthly transfer data CSV from SharePoint`
+# Purpose: Download the newest monthly transfer data CSV from SharePoint
 # Description:
 #   For the monthly transfer update:
 #   - connect to SharePoint

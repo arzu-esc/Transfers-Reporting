@@ -4,28 +4,11 @@
 
 Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfer CSVs from SharePoint, validate and load them into an Azure SQL staging table (`stg.aemo_transfers`), run verification checks and generate monthly outputs and charts.
 
-### What the Pipeline Does
+---
 
-**Data Processing:**
-- Downloads monthly transfer data files from SharePoint (CSV format)
-- Validates retailer identifiers against authoritative lookup tables
-- Loads validated data into a SQL Server staging environment
-- Enriches raw transfer records with retailer names, sizes, and classifications
-- Maintains a complete historical dataset from 2018 onwards
+## Visualising the Pipeline
 
-**Analysis & Reporting:**
-- Generates interactive HTML reports with drill-down capabilities
-- Tracks transfer trends over time (daily, monthly, quarterly, yearly views)
-- Analyzes market movements between retailers and retailer size categories
-- Calculates net customer gains/losses for each retailer
-- Visualizes transfer flows using Sankey diagrams
-- Identifies top gaining and losing retailers
-
-**Data Quality:**
-- Validates all retailer codes before loading into production
-- Maintains checkpoint system to prevent duplicate data loads
-- Creates audit snapshots of all imported data
-- Flags unmapped retailer IDs for resolution with AEMO
+![](images/aemo_pipeline_process_flow.png)
 
 ### Key Metrics Tracked
 
@@ -83,7 +66,9 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 | `01_config.R` | **Configuration and environment setup**<br>Loads all required R packages, sets up global folder pathways, defines sql and sharepoint connection parameters and writes resuablel helper functions |
 | `02_get_new_month_data.R` | **SharePoint data retrieval**<br>Downloads newest monthly transfer data CSV from SharePoint |
 | `03_check_retailer_ids.R` | **Validation checkpoint**<br>Validate FRMP and NEWFRMP IDs in the latest monthly AEMO CSV |
-| `04_load_data_sql.R` | **Data loading and transformation**<br> After successful ID validation, loads the newest monthly transfer CSV into SQL staging table and then runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
+| `04_load_data_sql.R` | **Data loading and transformation**<br> - After successful ID validation, loads the newest monthly transfer CSV into SQL staging table<br>
+- Saves snapshot of raw data loaded locally (02_data/snapshots) and on SharePoint ("5 - Data Repository/AEMO Transfers/Imported")<br>
+- Runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
 | `05_read_updated_transfer_data.R` | **Report data preparation**<br>Read updated transfer data from SQL view (dbo.vw_aemo_transfers) into R |
 | `transfers_report.html` | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`
 
@@ -108,11 +93,20 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 ---
 
-## Running the Project
+## Steps to Execute the Pipeline
 
-### Initial Setup (One-Time)
+### Save and extract the new monthly csv
 
-**1. Clone Repository**
+1. Open the email received from AEMO and save a copy of the zip folder on your PC
+
+2. Extract the contents of the zip folder using ‘7-zip File Manager’. To extract, use the password VIC_stat_19106350.
+
+3. Save the csv file into this [Sharepoint folder](https://escvic.sharepoint.com/:f:/r/teams/IntelligenceandAnalysisESC/Shared Documents/3 - Services/AEMO MSATS Transfers data/Data?csf=1&web=1&e=vN9KrP)
+
+### Setting up this repo:
+
+
+**4. Clone Repository**
    - Open RStudio
    - Select File → New Project → Version Control → Git
    - Paste repository URL:
@@ -121,7 +115,7 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 ```
    > ⚠️ **Important:** Ensure project directory is **NOT** in OneDrive or SharePoint (prevents file locking issues)
 
-**2. Configure Project**
+**5. Configure Project**
    - Install required packages:
    ```r
     install.packages(c("dplyr", "ggplot2", "janitor", "readxl", "scales"))
@@ -138,12 +132,13 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
      sharepoint_import_folder <- "5 - Data Repository/AEMO Transfers/Imported"
 ```
 
-**3. Prepare for Monthly Update**
+**6. Prepare for Monthly Update**
   - Ensure new monthly CSV has been published to SharePoint by AEMO
   - Check that previous month's update completed successfully
   - Verify you have database write permissions
 
-**4. Run Primary Pipeline**
+**7. Run Primary Pipeline**
+
 ```r
 setwd("01_monthly_scripts")
 source("00_run_all.R")
@@ -152,65 +147,63 @@ source("00_run_all.R")
 This executes in sequence:
 1. **Configuration** (`01_config.R`)
 2. **Data Download** (`02_get_new_month_data.R`)
-3. **Validation** (`03_check_retailer_ids.R`)
+3. **Retailer ID Validation** (`03_check_retailer_ids.R`)
 
 **Two possible outcomes:**
 
-3.1 **All retailer IDs map correctly** and the rest of the scripts execute automatically:
+**8.1 All retailer IDs map correctly** and the rest of the scripts execute automatically:
   - `04_load_data_sql.R`
   - `05_read_updated_transfer_data.R`
   - `transfers_report.Rmd` --> Generates `transfers_report.html`
 
-3.2 **AEMO retailer IDs missing from retailer look up**
+**8.2 AEMO retailer IDs missing from retailer look up**
 
-**Steps to take:**
+  **Steps to take:**
   
-a. Review the missing_ids in `04_outputs/missing_ids`
+    1. Review the missing_ids in `04_outputs/missing_ids`
     
-```r
-missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
-View(missing_ids)
-```
+    ```r
+    missing_ids <- read.csv("04_outputs/missing_ids/missing_ids_summary.csv")
+    View(missing_ids)
+    ```
     
-This shows:
-- Which stat type has unmapped IDs (M71 or M57A)
-- Which field is affected (FRMP or NEWFRMP)
-- The actual unmapped ID values
+    This shows:
+      - Which stat type has unmapped IDs (M71 or M57A)
+      - Which field is affected (FRMP or NEWFRMP)
+      - The actual unmapped ID values
       
-b. Contact AEMO and ask for:
-- Updated participant ID list
-- Updated participant and company ID mapping.
+    2. Contact AEMO and ask for:
+      - Updated participant ID list
+      - Updated participant and company ID mapping.
       
-c. Update **RetailersLookup.xlsx** with the new mapping.
-- Navigate to SharePoint AEMO folder
-- Open `RetailersLookup.xlsx`
-- Add new rows for unmapped IDs
-- Ensure all columns are complete:
-- `PARTICIPANTID` - AEMO participant identifier
- - `CORPORATIONID` - AEMO corporation identifier  
-- `ESC RetailerCommonID` - ESC internal retailer ID
-- Save and close file
+    3. Update **RetailersLookup.xlsx** with the new mapping.
+      - Navigate to SharePoint AEMO folder
+      - Open `RetailersLookup.xlsx`
+      - Add new rows for unmapped IDs
+      - Ensure all columns are complete:
+        - `PARTICIPANTID` - AEMO participant identifier
+        - `CORPORATIONID` - AEMO corporation identifier  
+        - `ESC RetailerCommonID` - ESC internal retailer ID
+      - Save and close file
     
-d. Run script to Refresh SQL Lookup Table:
+    4. Run script to Refresh SQL Lookup Table:
     
-```r 
-source("03_lookup_changes/update_retailers_lookup.R")
-```
-
-e. Run retailer id validation script again to make sure mapping is working: 
+      ```r 
+      source("03_lookup_changes/update_retailers_lookup.R")
+      ```
+    5. Run retailer id validation script again to make sure mapping is working: 
     
-```r 
-source("01_monthly_scripts/04_check_retailer_ids.R")
-```
-
-f. Run 00_run_completion.R to complete the pipeline if validation passes:
+      ```r 
+      source("01_monthly_scripts/04_check_retailer_ids.R")
+      ```
+    6. Run 00_run_completion.R to complete the pipeline if validation passes:
     
-```r 
-source("00_run_completion.R")
-```
+      ```r 
+      source("00_run_completion.R")
+      ```
 ---
 
-### 7. Manually Regenerate Report (Optional)
+### 9. Manually Regenerate Report (Optional)
 
 If you need to regenerate just the report (without re-loading data):
 
@@ -224,7 +217,7 @@ rmarkdown::render("transfers_report.Rmd")
 
 ---
 
-### 8. Verify Completion
+### 10. Verify Completion
 
 **Checklist:**
 - [ ] Console shows: `"Transfer report created"`
@@ -237,6 +230,8 @@ rmarkdown::render("transfers_report.Rmd")
 - [ ] Latest month appears in visualisations
 - [ ] Snapshot uploaded to SharePoint: `5 - Data Repository/AEMO Transfers/Imported/`
 - [ ] Checkpoint updated with new file
+
+---
 
 **Troubleshooting**
 - If a SharePoint connection fails, confirm `SHAREPOINT_SITE_URL` and `SHAREPOINT_DATA_FOLDER` values and that `Microsoft365R` can access your SharePoint via AAD.
