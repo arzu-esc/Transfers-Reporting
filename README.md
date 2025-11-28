@@ -174,20 +174,26 @@ This shows:
 - Updated participant and company ID mapping.
       
 3. Update **RetailersLookup.xlsx** with the new mapping.
-   
-  a. Open [RetailersLookup.xlsx](<https://escvic.sharepoint.com/:x:/r/teams/IntelligenceandAnalysisESC/Shared%20Documents/3%20-%20Services/AEMO%20MSATS%20Transfers%20data/RetailersLookup.xlsx?d=w494531f4be8b4cf5b8b4bd6d33c7e504&csf=1&web=1&e=gNjm65>)
-  b. In the **CorporationID Lookup** tab, add new rows for unmapped IDs
-  c. Ensure all columns are complete:
-    - `PARTICIPANTID` - AEMO participant identifier
-    - `CORPORATIONID` - AEMO corporation identifier  
-    - `ESC RetailerCommonID` - ESC internal retailer ID
-  d. Save and close file
+
+   a. Open [RetailersLookup.xlsx](<https://escvic.sharepoint.com/:x:/r/teams/IntelligenceandAnalysisESC/Shared%20Documents/3%20-%20Services/AEMO%20MSATS%20Transfers%20data/RetailersLookup.xlsx?d=w494531f4be8b4cf5b8b4bd6d33c7e504&csf=1&web=1&e=gNjm65>)
+
+   b. In the **CorporationID Lookup** tab, add new rows for unmapped IDs
+
+   c. Ensure all columns are complete:
+
+      - `PARTICIPANTID` — AEMO participant identifier  
+      - `CORPORATIONID` — AEMO corporation identifier  
+      - `ESC RetailerCommonID` — ESC internal retailer ID
+
+   d. Save and close the file
+
     
-5. Run script to Refresh SQL Lookup Table:
+4. Run script to Refresh SQL Lookup Table:
     
 ```r 
 source("03_lookup_changes/update_retailers_lookup.R")
 ```
+
 5. Run retailer id validation script again to make sure mapping is working: 
     
 ```r 
