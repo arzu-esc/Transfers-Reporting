@@ -10,10 +10,7 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 
 ![](images/aemo_pipeline_process_flow.png)
 
-### Key Metrics Tracked
-
-- **M57A** - Transfer statistics (customer switches between retailers)
-- **M71** - Active NMI (National Meter Identifier) counts per retailer
+---
 
 ## Prerequisites
 
@@ -66,11 +63,9 @@ Purpose: Collect monthly AEMO (Australian Energy Market Operator) retail transfe
 | `01_config.R` | **Configuration and environment setup**<br>Loads all required R packages, sets up global folder pathways, defines sql and sharepoint connection parameters and writes resuablel helper functions |
 | `02_get_new_month_data.R` | **SharePoint data retrieval**<br>Downloads newest monthly transfer data CSV from SharePoint |
 | `03_check_retailer_ids.R` | **Validation checkpoint**<br>Validate FRMP and NEWFRMP IDs in the latest monthly AEMO CSV |
-| `04_load_data_sql.R` | **Data loading and transformation**<br> - After successful ID validation, loads the newest monthly transfer CSV into SQL staging table<br>
-- Saves snapshot of raw data loaded locally (02_data/snapshots) and on SharePoint ("5 - Data Repository/AEMO Transfers/Imported")<br>
-- Runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
+| `04_load_data_sql.R` | **Data loading and transformation**<br>- After successful ID validation, loads the newest monthly transfer CSV into SQL staging table<br>- Saves snapshot of raw data loaded locally (02_data/snapshots) and on SharePoint ("5 - Data Repository/AEMO Transfers/Imported")<br>- Runs an incremental stored procedure to refresh dbo.aemo_transfers_data |
 | `05_read_updated_transfer_data.R` | **Report data preparation**<br>Read updated transfer data from SQL view (dbo.vw_aemo_transfers) into R |
-| `transfers_report.html` | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`
+| `transfers_report.html` | **Report creation**<br> Generates the monthly AEMO Transfer report as `transfers_report.html`<br>**Key AEMO Metrics Tracked**<br>- **M57A:** Transfer statistics (customer switches between retailers)<br>- **M71:** Active NMI (National Meter Identifier) counts per retailer |
 
 ---
 
