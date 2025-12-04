@@ -1,0 +1,1158 @@
+---
+title: "transfers_offer_analysis"
+author: "Arzu Khanna"
+date: "2025-12-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+```
+
+```{r include=FALSE}
+library(dplyr)       
+library(lubridate)   
+library(ggplot2)      
+library(plotly)    
+library(readxl)    
+library(tidyr) 
+library(zoo)  
+library(here)
+```
+
+```{r}
+# ============================================================================
+# 1. PREPARE AND CLEAN OFFER DATA
+# ============================================================================
+
+# 1. Get VEC electricity data
+elec_raw <- read_excel("VEC Elec Offers with CPRG VDO.xlsx",
+                       guess_max = 50000) %>%
+  mutate(Fuel = "electricity")
+
+# 2. Filter for relevancy
+
+df_clean <- elec_raw %>%
+  filter(year(identifier_date) >= 2022,
+         offer_type == "market offer",
+         cust_type == "res")
+
+# 3. Keep only the most recent identifier_date for each offer_id
+df_clean <- df_clean %>%
+  group_by(offer_id) %>%
+  filter(identifier_date == max(identifier_date)) %>%
+  ungroup()
+
+# 4. Convert date columns to proper date format
+df_clean <- df_clean %>%
+  mutate(
+    identifier_date = ymd(identifier_date),  # Format: YYYY-MM-DD
+    start_date = ymd(start_date)
+  )
+
+# 5. Calculate end_date as last day of month for identifier_date
+# If identifier_date is the maximum date in the dataset, leave end_date blank (NA)
+# as the offer may still be available in the following month
+
+max_identifier_date <- max(df_clean$identifier_date, na.rm = TRUE)
+
+df_clean <- df_clean %>%
+  mutate(
+    end_date = case_when(
+      identifier_date == max_identifier_date ~ as.Date(NA),
+      TRUE ~ ceiling_date(identifier_date, "month") - days(1)
+    )
+  )
+
+# 5. Create offer categories
+offers_res_elec <- df_clean %>%
+  mutate(
+    offer_category = case_when(
+      has_discount == 1 & has_disc_conditional == 1 ~ "Market offers with\nconditional discounts",
+      has_discount == 1 & has_disc_conditional == 0 ~ "Market offers with\nguaranteed discounts",
+      has_discount == 0 & has_disc_conditional == 0 ~ "Market offers without\ndiscounts",
+      TRUE ~ "Other"
+    )
+  )
+```
+
+```{r}
+# ============================================================================
+#  2. LOAD AND CLEAN TRANSFERS DATA
+# ============================================================================
+
+# Read the CSV file containing transfer information
+transfers_raw <- readRDS("02_data/transfers_raw.rds")
+
+# Separate transfers and customer base data
+# M57A = Daily transfer counts
+# M71 = Monthly customer base (captured on last day of each month)
+
+# transfers data
+transfers_daily <- transfers_raw %>%
+  filter(stat_shortcut == "M57A") %>%
+  mutate(stat_date = ymd(stat_date)) %>%
+  filter(
+    Year >= 2022,
+    # Keep only Charge Retailer Codes (1000-1040)
+    crcode %in% c(1000, 1010, 1020, 1030, 1040)
+  ) %>%
+  rename(
+    transfer_date = stat_date,        
+    transfers_count = stat_value,     
+    from_retailer = FRMP_Retailer_name,
+    to_retailer = NEWFRMP_Retailer_name, 
+    reason_code = crcode
+  ) %>%
+  select(transfer_date, Year, Month, transfers_count, from_retailer, to_retailer, reason_code)
+
+# customer base data
+customer_base <- transfers_raw %>%
+  filter(stat_shortcut == "M71") %>%
+  mutate(stat_date = ymd(stat_date)) %>%
+  filter(year(stat_date) >= 2022) %>%
+  rename(
+    retailer = FRMP_Retailer_name
+  ) %>%
+  group_by(retailer, Year, Month) %>%
+  summarise(customer_count = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
+  select(Year, Month, retailer, customer_count) %>%
+  distinct(Year, Month, retailer, .keep_all = TRUE)
+
+message("✓ Transfers and customer base data loaded successfully")
+```
+
+```{r}
+# ============================================================================
+# 1. CREATE WEEKLY SNAPSHOTS OF OFFERS
+# ============================================================================
+
+# Create a list of all Mondays from 2022 onwards
+weekly_dates <- seq.Date(
+  from = as.Date("2022-01-03"),  # First Monday in 2022
+  to = Sys.Date(),               # Today
+  by = "week"                    # Every 7 days
+)
+
+# Get list of all unique retailers
+retailers <- unique(offers_res_elec$retailer)
+
+# --- FUNCTION: Calculate what offers a retailer had on a specific date ---
+calculate_offer_metrics <- function(offers_data, target_date, retailer_name) {
+  
+  # Step 1: Find all offers that were active on this date
+  # An offer is "active" if:
+  #   - It started on or before this date
+  #   - It hasn't ended yet, OR it ended after this date
+  active_offers <- offers_data %>%
+    filter(
+      retailer == retailer_name,
+      start_date <= target_date,
+      (is.na(end_date) | end_date >= target_date)
+    )
+  
+  # Step 2: If this retailer had no active offers, return empty data
+  if (nrow(active_offers) == 0) {
+    return(data.frame(
+      date = target_date,
+      retailer = retailer_name,
+      n_offers = 0,
+      median_price = NA,
+      min_price = NA,
+      max_price = NA,
+      pct_guaranteed_discount = NA,
+      pct_conditional_discount = NA,
+      pct_no_discount = NA,
+      avg_contract_term = NA,
+      pct_solar_available = NA,
+      pct_with_incentive = NA,
+      avg_annual_fee = NA,
+      avg_late_fee = NA,
+      cprg_retailer_size = NA
+    ))
+  }
+  
+  # Step 3: Calculate the Victorian market average for this date
+  vic_benchmark <- offers_data %>%
+    filter(
+      start_date <= target_date,
+      (is.na(end_date) | end_date >= target_date)
+    ) %>%
+    summarise(vic_median = median(total_bill_pre_transaction, na.rm = TRUE)) %>%
+    pull(vic_median)
+  
+  # Step 4: Calculate metrics for this specific retailer
+  metrics <- active_offers %>%
+    summarise(
+      date = target_date,
+      retailer = retailer_name,
+      
+      n_offers = n(),
+      
+      # PRICING METRICS
+      median_price = median(total_bill_pre_transaction, na.rm = TRUE),
+      min_price = min(total_bill_pre_transaction, na.rm = TRUE),
+      max_price = max(total_bill_pre_transaction, na.rm = TRUE),
+      
+      # DISCOUNT TYPE METRICS (as percentages)
+      pct_guaranteed_discount = mean(offer_category == "Market offers with\nguaranteed discounts", na.rm = TRUE) * 100,
+      pct_conditional_discount = mean(offer_category == "Market offers with\nconditional discounts", na.rm = TRUE) * 100,
+      pct_no_discount = mean(offer_category == "Market offers without\ndiscounts", na.rm = TRUE) * 100,
+      
+      # CONTRACT TERM
+      # Convert contract terms to numbers (blank/"none" = 0, "1 year" = 1, etc.)
+      avg_contract_term = mean(case_when(
+        is.na(contract_term) | contract_term %in% c("", "None", "Other") ~ 0,
+        contract_term == "1 year" ~ 1,
+        contract_term == "2 year" ~ 2,
+        TRUE ~ 0
+      ), na.rm = TRUE),
+      
+      # SOLAR
+      # What % of offers are available for solar customers?
+      pct_solar_available = mean(solar_offer %in% c("Yes", "Optional"), na.rm = TRUE) * 100,
+      
+      # INCENTIVES
+      # What % of offers include an incentive (bonus, credit, etc.)?
+      pct_with_incentive = mean(has_incentive == "Yes", na.rm = TRUE) * 100,
+      
+      # FEES (calculate averages)
+      avg_annual_fee = mean(total_annual_fee, na.rm = TRUE),
+      avg_late_fee = mean(total_late_payment_fee, na.rm = TRUE),
+      
+      # Add the Victorian market average
+      vic_median = vic_benchmark,
+      
+      cprg_retailer_size = first(cprg_retailer_size)
+    ) %>%
+    mutate(
+      # Calculate how much more/less expensive than market average
+      price_vs_market = ((median_price - vic_median) / vic_median) * 100,
+      
+      # yes/no: are they more expensive than average?
+      is_above_market = median_price > vic_median
+    )
+  
+  return(metrics)
+}
+
+# --- NOW: Create snapshots for every retailer for every week ---
+# This will take a few minutes because we're processing thousands of combinations
+
+message("Creating weekly offer snapshots... this may take a few minutes!")
+
+# Create a grid of all combinations: every week × every retailer
+# Then calculate metrics for each combination
+offer_snapshots <- expand.grid(
+  date = weekly_dates,
+  retailer = retailers,
+  stringsAsFactors = FALSE
+) %>%
+  # For each row, calculate the metrics
+  rowwise() %>%
+  do({
+    calculate_offer_metrics(offers_res_elec, .$date, .$retailer)
+  }) %>%
+  ungroup()
+
+# Add a "competitiveness rank" for each week
+# Rank 1 = cheapest retailer that week, higher rank = more expensive
+offer_snapshots <- offer_snapshots %>%
+  group_by(date) %>%
+  mutate(
+    price_competitiveness_rank = rank(median_price, ties.method = "average")
+  ) %>%
+  ungroup()
+
+message("✓ Offer snapshots created!")
+```
+
+```{r}
+# ============================================================================
+# 2. AGGREGATE TRANSFERS TO WEEKLY LEVEL
+# ============================================================================
+
+transfers_weekly <- transfers_daily %>%
+  # Round each date down to the Monday of that week
+  mutate(
+    week_start = floor_date(transfer_date, "week", week_start = 1)
+  ) %>%
+  # Group by week and retailer
+  group_by(week_start, Year, Month, from_retailer) %>%
+  summarise(
+    # Count total transfers for the week
+    total_transfers_out = sum(transfers_count),
+    # Calculate average per day
+    avg_daily_transfers = mean(transfers_count),
+    .groups = "drop"
+  ) %>%
+  # Rename to match offer_snapshots
+  rename(
+    date = week_start,
+    retailer = from_retailer
+  ) %>%
+  # Join with customer base using Year and Month
+  left_join(customer_base, by = c("Year", "Month", "retailer")) %>%
+  mutate(
+    #calculate normalised transfer rates
+    transfer_rate = if_else(
+      !is.na(customer_count) & customer_count > 0,
+      (total_transfers_out / customer_count) * 100,
+      NA
+    ),
+    # Also calculate average daily transfer rate
+    avg_daily_transfer_rate = ifelse(
+      !is.na(customer_count) & customer_count > 0,
+      (avg_daily_transfers / customer_count) * 100,
+      NA
+    )
+  )
+```
+
+```{r}
+# ============================================================================
+# 3. CREATE TIME-LAGGED DATASETS
+# ============================================================================
+# When a retailer changes prices, customers might not switch immediately
+# Test different lag periods (1 week, 2 weeks, 4 weeks, 8 weeks)
+
+# --- FUNCTION: Create a dataset with a specific time lag ---
+create_lagged_dataset <- function(offers, transfers, lag_weeks) {
+  
+  # Shift the offer dates forward by X weeks
+  # Example: An offer from Jan 1 gets moved to Jan 8 (if lag = 1 week)
+  # This lets us test if Jan 1 offers affected Jan 8 transfers
+  offers_lagged <- offers %>%
+    mutate(date = date + weeks(lag_weeks)) %>%
+
+    rename_with(~paste0(., "_lag", lag_weeks, "w"), 
+                -c(date, retailer))
+  
+  # Join lagged offers with transfers
+  combined <- transfers %>%
+    left_join(offers_lagged, by = c("date", "retailer"))
+  
+  return(combined)
+}
+
+# Create datasets with different time lags
+# Lag 0 = same week (immediate effect)
+# Lag 1 = 1 week later
+# Lag 2 = 2 weeks later, etc.
+
+message("Creating lagged datasets...")
+
+combined_lag0 <- transfers_weekly %>%
+  left_join(offer_snapshots, by = c("date", "retailer"))
+
+combined_lag1 <- create_lagged_dataset(offer_snapshots, transfers_weekly, 1)
+combined_lag2 <- create_lagged_dataset(offer_snapshots, transfers_weekly, 2)
+combined_lag4 <- create_lagged_dataset(offer_snapshots, transfers_weekly, 4)
+combined_lag8 <- create_lagged_dataset(offer_snapshots, transfers_weekly, 8)
+
+# Combine all lags into ONE master dataset
+# Each row has: transfers + current offers + lagged offers (1w, 2w, 4w, 8w ago)
+analysis_data <- combined_lag0 %>%
+  left_join(
+    combined_lag1 %>% select(date, retailer, ends_with("_lag1w")),
+    by = c("date", "retailer")
+  ) %>%
+  left_join(
+    combined_lag2 %>% select(date, retailer, ends_with("_lag2w")),
+    by = c("date", "retailer")
+  ) %>%
+  left_join(
+    combined_lag4 %>% select(date, retailer, ends_with("_lag4w")),
+    by = c("date", "retailer")
+  ) %>%
+  left_join(
+    combined_lag8 %>% select(date, retailer, ends_with("_lag8w")),
+    by = c("date", "retailer")
+  )
+
+# REMOVE RETAILERS WITH LESS THAN 100 WEEKS OF DATA
+
+retailer_weeks <- analysis_data %>%
+  group_by(retailer) %>%
+  summarise(
+    n_weeks = n(),
+    .groups = "drop"
+  )
+
+retailers_to_keep <- retailer_weeks %>%
+  filter(n_weeks >= 100) %>%
+  pull(retailer)
+
+analysis_data <- analysis_data %>%
+  filter(retailer %in% retailers_to_keep,
+         !is.na(customer_count))
+
+message("✓ Master dataset created!")
+message(paste("✓ Remaining retailers:", length(unique(analysis_data$retailer))))
+```
+
+# ANALYSIS 1: Retailer vs Victorian Offer Price 
+
+```{r}
+# ============================================================================
+# ANALYSIS 1: SEGMENTED ANALYSIS BY PRICE DIFFERENCE
+# ============================================================================
+
+# Create grouping for retailer price vs market price
+
+# --- FUNCTION: Create segmented analysis for a specific lag ---
+# This function groups retailers by price position and calculates avg transfers
+create_segmented_analysis <- function(data, price_column, lag_label) {
+  
+  # Check if the price column exists
+  if (!price_column %in% names(data)) {
+    return(NULL)
+  }
+  
+  # Create price groups and calculate averages
+  result <- data %>%
+    filter(!is.na(.data[[price_column]])) %>%
+    mutate(
+      # Categorize each retailer-week into a price group
+      price_group = case_when(
+        .data[[price_column]] > 10 ~ "Much higher (>10%)",
+        .data[[price_column]] > 5 ~ "Moderately higher (5-10%)",
+        .data[[price_column]] > -5 ~ "Near average (±5%)",
+        .data[[price_column]] > -10 ~ "Moderately lower (5-10%)",
+        TRUE ~ "Much lower (<-10%)"
+      ),
+      # Convert to factor to control order in charts
+      price_group = factor(price_group, levels = c(
+        "Much lower (<-10%)",
+        "Moderately lower (5-10%)",
+        "Near average (±5%)",
+        "Moderately higher (5-10%)",
+        "Much higher (>10%)"
+      ))
+    ) %>%
+    # Calculate average transfers for each price group
+    group_by(price_group) %>%
+    summarise(
+      avg_weekly_transfer_rate = mean(transfer_rate, na.rm = TRUE),
+      median_weekly_transfers = median(transfer_rate, na.rm = TRUE),
+      n_retailer_weeks = n(),
+      .groups = "drop"
+    ) %>%
+    # Add a column to identify which lag this is
+    mutate(lag = lag_label)
+  
+  return(result)
+}
+```
+
+```{r}
+# Create segmented analysis for each lag period
+
+segmented_lag0 <- create_segmented_analysis(analysis_data, "price_vs_market", "Current Week (Lag 0)")
+segmented_lag2w <- create_segmented_analysis(analysis_data, "price_vs_market_lag2w", "2 Weeks Ago (Lag 2w)")
+segmented_lag4w <- create_segmented_analysis(analysis_data, "price_vs_market_lag4w", "4 Weeks Ago (Lag 4w)")
+segmented_lag8w <- create_segmented_analysis(analysis_data, "price_vs_market_lag8w", "8 Weeks Ago (Lag 8w)")
+
+# Combine all lag results into one data set
+segmented_all_lags <- bind_rows(
+  segmented_lag0,
+  segmented_lag2w,
+  segmented_lag4w,
+  segmented_lag8w
+)
+
+segmented_all_lags <- segmented_all_lags %>%
+  mutate(
+    lag = factor(lag, levels = c(
+      "Current Week (Lag 0)",
+      "2 Weeks Ago (Lag 2w)",
+      "4 Weeks Ago (Lag 4w)",
+      "8 Weeks Ago (Lag 8w)"
+    ))
+  )
+
+# Results for each lag
+cat("\n--- CURRENT WEEK PRICING (Lag 0) ---\n")
+print(segmented_lag0 %>% select(price_group, avg_weekly_transfer_rate, n_retailer_weeks))
+
+cat("\n--- 2 WEEKS AGO PRICING (Lag 2w) ---\n")
+print(segmented_lag2w %>% select(price_group, avg_weekly_transfer_rate, n_retailer_weeks))
+
+cat("\n--- 4 WEEKS AGO PRICING (Lag 4w) ---\n")
+print(segmented_lag4w %>% select(price_group, avg_weekly_transfer_rate, n_retailer_weeks))
+
+cat("\n--- 8 WEEKS AGO PRICING (Lag 8w) ---\n")
+print(segmented_lag8w %>% select(price_group, avg_weekly_transfer_rate, n_retailer_weeks))
+```
+
+```{r}
+# --- Create comparison chart showing all lags side-by-side ---
+plot_segmented_lags <- plot_ly(
+  data = segmented_all_lags,
+  x = ~price_group,
+  y = ~avg_weekly_transfer_rate,
+  color = ~lag,
+  type = "bar",
+  colors = c("#236192", "#4986a0", "#75787b", "#183028"),
+  text = ~paste0(round(avg_weekly_transfer_rate, 2), "%"),
+  textposition = "outside"
+) %>%
+  layout(
+    title = "<b>Average Weekly Transfer Rate by Retailer Price Position</b>",
+    xaxis = list(title = "Retailer vs Market Median Offer Price"),
+    yaxis = list(title = "Average Weekly Transfer Rate (%)"),
+    margin = list(t = 110),
+    barmode = "group",
+    legend = list(
+      orientation = "h", 
+      y = 1.15, 
+      x = 0.5, 
+      xanchor = "center",
+      font = list(size = 10)
+    )
+  )
+
+plot_segmented_lags
+```
+
+```{r}
+# --- Create a "difference from average" chart ---
+# This shows how much MORE (or LESS) each price group loses compared to average
+# Useful for seeing the "penalty" of being expensive
+
+segmented_differences <- segmented_all_lags %>%
+  group_by(lag) %>%
+  mutate(
+    # Calculate the difference from the "Near average" group
+    avg_baseline = avg_weekly_transfer_rate[price_group == "Near average (±5%)"],
+    difference_from_baseline = avg_weekly_transfer_rate - avg_baseline,
+    pct_difference = (difference_from_baseline / avg_baseline) * 100
+  ) %>%
+  ungroup()
+
+plot_segmented_differences <- plot_ly(
+  data = segmented_differences,
+  x = ~price_group,
+  y = ~difference_from_baseline,
+  color = ~lag,
+  type = "bar",
+  colors = c("#236192", "#4986a0", "#75787b", "#183028")
+) %>%
+  layout(
+    title = "<b>Difference in Transfer Rates Compared to Median (for each Price Group)</b><br>",
+    xaxis = list(title = "Price vs Market Average"),
+    yaxis = list(title = "Retailer vs Market Median Offer Price"),
+    margin = list(t = 110),
+    barmode = "group",
+    legend = list(
+      orientation = "h", 
+      y = 1.15, 
+      x = 0.5, 
+      xanchor = "center",
+      font = list(size = 10)
+    ),
+    shapes = list(
+      # Add a horizontal line at 0 (the baseline)
+      list(
+        type = "line",
+        x0 = -0.5, x1 = 5,
+        y0 = 0, y1 = 0,
+        line = list(color = "gray", dash = "dash", width = 2)
+      )
+    )
+  )
+
+plot_segmented_differences
+
+```
+
+```{r}
+# --- Calculate which lag shows the strongest effect ---
+# Look for the lag where "Much higher" has the biggest penalty
+
+penalty_comparison <- segmented_differences %>%
+  filter(price_group == "Much higher (>10%)") %>%
+  select(lag, difference_from_baseline, pct_difference) %>%
+  arrange(desc(difference_from_baseline))
+
+cat("\n--- PENALTY FOR BEING >10% ABOVE MARKET ---\n")
+cat("Which timeframe shows the biggest impact?\n\n")
+print(penalty_comparison)
+
+cat("\n✓ INSIGHT: The '", penalty_comparison$lag[1], 
+    "' timeframe shows the strongest effect\n")
+cat(sprintf("  Retailers >10%% above market have %.2f%% points higher transfer rate (%.1f%% more)\n",
+            penalty_comparison$difference_from_baseline[1],
+            penalty_comparison$pct_difference[1]))
+```
+
+# ANALYSIS 2: RELATIONSHIP BETWEEN OFFER PRICES AND TRANSFERS
+
+```{r}
+# Create 20 price buckets from -20% to +20%
+threshold_analysis <- analysis_data %>%
+  filter(!is.na(price_vs_market), 
+         !is.na(transfer_rate),
+         price_vs_market >= -20, 
+         price_vs_market <= 20) %>%
+  mutate(
+    price_bucket = round(price_vs_market / 2) * 2
+  ) %>%
+  group_by(price_bucket) %>%
+  summarise(
+    avg_transfer_rate = mean(transfer_rate, na.rm = TRUE),
+    n_observations = n(),
+    .groups = "drop"
+  ) %>%
+  # Only keep buckets with enough data
+  filter(n_observations >= 10)
+
+threshold_analysis
+```
+
+```{r}
+# Create a line chart to see if there's a threshold
+plot_threshold <- plot_ly(
+  data = threshold_analysis,
+  x = ~price_bucket,
+  y = ~avg_transfer_rate,
+  type = "scatter",
+  mode = "lines+markers",
+  line = list(color = "#236192", width = 3),
+  marker = list(size = 8),
+  text = ~paste0("Rate: ", round(avg_transfer_rate, 2), "%")
+) %>%
+  layout(
+    title = "<b>Transfer Rate by Retailer Price Position</b>",
+    xaxis = list(
+      title = "Retailer vs Market Median Offer Price (%)",
+      zeroline = TRUE,
+      zerolinecolor = "gray",
+      zerolinewidth = 2,
+      tickformat = "%d%%"
+    ),
+    yaxis = list(title = "Average Weekly Transfer Rate (%)"),
+    margin = list(t = 110),
+    shapes = list(
+      # Add a vertical line at 0% (market average)
+      list(
+        type = "line",
+        x0 = 0, x1 = 0,
+        y0 = 0, y1 = max(threshold_analysis$avg_transfer_rate),
+        line = list(color = "red", dash = "dash", width = 2)
+      )
+    ),
+    annotations = list(
+      list(
+        x = 0,
+        y = max(threshold_analysis$avg_transfer_rate) * 0.95,
+        text = "Market Average",
+        showarrow = FALSE,
+        xanchor = "left",
+        xshift = 5,
+        yshift = 20
+      )
+    )
+  )
+
+plot_threshold
+```
+
+# ANALYSIS 3: REGRESSION MODELS
+
+```{r}
+# Prepare data for regression
+regression_data <- analysis_data %>%
+  filter(
+    !is.na(price_vs_market),
+    !is.na(avg_contract_term),
+    !is.na(pct_solar_available),
+    !is.na(pct_with_incentive),
+    !is.na(pct_guaranteed_discount),
+    !is.na(avg_annual_fee),
+    !is.na(avg_late_fee),
+    !is.na(customer_count)
+  ) %>%
+  mutate(
+    total_transfers_out = as.numeric(total_transfers_out),
+    price_vs_market = as.numeric(price_vs_market),
+    price_competitiveness_rank = as.numeric(price_competitiveness_rank),
+    pct_guaranteed_discount = as.numeric(pct_guaranteed_discount),
+    pct_conditional_discount = as.numeric(pct_conditional_discount),
+    avg_contract_term = as.numeric(avg_contract_term),
+    pct_solar_available = as.numeric(pct_solar_available),
+    pct_with_incentive = as.numeric(pct_with_incentive),
+    avg_annual_fee = as.numeric(avg_annual_fee),
+    avg_late_fee = as.numeric(avg_late_fee),
+    
+    # ⭐ NEW — log transform customer size
+    log_customer_size = log(customer_count)
+  )
+```
+
+```{r}
+cat("=== REGRESSION DIAGNOSTICS ===\n")
+cat("Rows in regression_data:", nrow(regression_data), "\n")
+
+summary(regression_data[, c(
+  "price_vs_market",
+  "avg_contract_term",
+  "pct_solar_available",
+  "pct_with_incentive",
+  "pct_guaranteed_discount",
+  "avg_annual_fee",
+  "avg_late_fee",
+  "customer_count"
+)])
+
+```
+
+# LINEAR REGRESSION MODEL
+
+```{r}
+regression_model <- lm(
+  total_transfers_out ~ 
+    price_vs_market +
+    price_competitiveness_rank +
+    pct_guaranteed_discount +
+    pct_conditional_discount +
+    avg_contract_term +
+    pct_solar_available +
+    pct_with_incentive +
+    avg_annual_fee +
+    avg_late_fee +
+    log_customer_size,
+  data = regression_data
+)
+
+cat("\nREGRESSION RESULTS:\n")
+summary(regression_model)
+
+
+# Extract coefficients
+model_summary <- summary(regression_model)
+coefficients_table <- model_summary$coefficients
+
+regression_results <- data.frame(
+  Variable = rownames(coefficients_table)[-1],
+  Coefficient = coefficients_table[-1, "Estimate"],
+  Std_Error = coefficients_table[-1, "Std. Error"],
+  T_Value = coefficients_table[-1, "t value"],
+  P_Value = coefficients_table[-1, "Pr(>|t|)"],
+  row.names = NULL
+) %>%
+  mutate(
+    Significant = ifelse(P_Value < 0.05, "YES", "NO"),
+    Direction = ifelse(Coefficient > 0, "Positive (+)", "Negative (-)"),
+    Interpretation = case_when(
+      Variable == "price_vs_market" & Significant == "YES" ~ 
+        "Higher prices → More transfers",
+      Variable == "price_competitiveness_rank" & Significant == "YES" ~ 
+        "Higher rank (more expensive) → More transfers",
+      Variable == "avg_contract_term" & Significant == "YES" & Coefficient > 0 ~ 
+        "Longer contracts → More transfers",
+      Variable == "avg_contract_term" & Significant == "YES" & Coefficient < 0 ~ 
+        "Longer contracts → Fewer transfers (retention)",
+      Variable == "pct_with_incentive" & Significant == "YES" & Coefficient < 0 ~ 
+        "More incentives → Fewer transfers (retention)",
+      Variable == "pct_with_incentive" & Significant == "YES" & Coefficient > 0 ~ 
+        "More incentives → More transfers",
+      Variable == "pct_guaranteed_discount" & Significant == "YES" & Coefficient < 0 ~ 
+        "More guaranteed discounts → Fewer transfers",
+      Variable == "pct_conditional_discount" & Significant == "YES" & Coefficient < 0 ~ 
+        "More conditional discounts → Fewer transfers",
+      Variable == "avg_annual_fee" & Significant == "YES" & Coefficient > 0 ~ 
+        "Higher annual fees → More transfers",
+      Variable == "avg_late_fee" & Significant == "YES" & Coefficient > 0 ~ 
+        "Higher late fees → More transfers",
+      TRUE ~ "See coefficient"
+    )
+  ) %>%
+  arrange(P_Value)
+
+regression_results %>% filter(Significant == "YES")
+
+r_squared <- summary(regression_model)$r.squared
+adj_r_squared <- summary(regression_model)$adj.r.squared
+
+cat(sprintf("\nModel Fit:\n  R-squared: %.4f (%.2f%%)\n  Adjusted R-squared: %.4f\n",
+            r_squared, r_squared * 100, adj_r_squared))
+```
+
+# PLOT: LINEAR REGRESSION COEFFICIENT PLOT
+
+```{r}
+coef_df <- regression_results %>%
+  mutate(
+    Variable = reorder(Variable, Coefficient),
+    Colour = ifelse(Coefficient > 0, "#d7191c", "#1a9641")
+  )
+
+plot_coefficients <- plot_ly(
+  data = coef_df,
+  x = ~Variable,
+  y = ~Coefficient,
+  type = "bar",
+  marker = list(color = ~Colour),
+  text = ~paste0("p = ", round(P_Value, 4)),
+  textposition = "outside"
+) %>%
+  layout(
+    title = "<b>Linear Regression: Effect Sizes</b><br><sub>Positive = More Transfers, Negative = Fewer Transfers</sub>",
+    xaxis = list(title = "", tickangle = -45),
+    yaxis = list(title = "Coefficient Value"),
+    showlegend = FALSE
+  )
+
+plot_coefficients
+```
+
+# MULTICOLLINEARITY CHECK (VIF)
+
+```{r}
+# Install car package if needed for VIF (Variance Inflation Factor)
+if (!require(car, quietly = TRUE)) {
+  install.packages("car")
+  library(car)
+}
+
+# Calculate VIF (Variance Inflation Factor)
+# VIF > 10 indicates serious multicollinearity
+# VIF > 5 suggests moderate multicollinearity
+tryCatch({
+  vif_values <- vif(regression_model)
+  
+  cat("\nVariance Inflation Factors (VIF):\n")
+  cat("Rules: VIF < 5 = OK, VIF 5-10 = Moderate concern, VIF > 10 = High multicollinearity\n\n")
+  print(vif_values)
+  
+  # Identify problematic variables
+  high_vif <- vif_values[vif_values > 5]
+  if (length(high_vif) > 0) {
+    cat("\n⚠️  Variables with multicollinearity concerns:\n")
+    print(high_vif)
+    cat("\nConsider removing one of the correlated variables or using Ridge/Lasso regression.\n")
+  } else {
+    cat("\n✓ No serious multicollinearity detected.\n")
+  }
+}, error = function(e) {
+  cat("\nNote: VIF calculation failed. This can happen with dropped variables.\n")
+})
+```
+
+# POLYNOMIAL REGRESSION (NON-LINEAR)
+
+```{r}
+poly_model <- lm(
+  total_transfers_out ~ 
+    price_vs_market + I(price_vs_market^2) +
+    pct_guaranteed_discount + I(pct_guaranteed_discount^2) +
+    pct_conditional_discount + I(pct_conditional_discount^2) +
+    avg_contract_term + I(avg_contract_term^2) +
+    pct_with_incentive + I(pct_with_incentive^2) +
+    avg_annual_fee + I(avg_annual_fee^2) +
+    avg_late_fee +
+    log_customer_size,               
+  data = regression_data
+)
+
+summary(poly_model)
+poly_r_squared <- summary(poly_model)$r.squared
+```
+
+# INTERACTION EFFECTS
+
+```{r}
+interaction_model <- lm(
+  total_transfers_out ~ 
+    price_vs_market * pct_conditional_discount +
+    price_vs_market * avg_contract_term +
+    pct_with_incentive * avg_contract_term +
+    pct_guaranteed_discount * pct_with_incentive +
+    log_customer_size * price_vs_market,               
+  data = regression_data
+)
+
+summary(interaction_model)
+interaction_r_squared <- summary(interaction_model)$r.squared
+```
+
+# RANDOM FOREST
+
+```{r}
+if (!require(randomForest, quietly = TRUE)) {
+  install.packages("randomForest")
+  library(randomForest)
+}
+
+rf_data <- regression_data %>%
+  select(
+    total_transfers_out,
+    price_vs_market,
+    pct_guaranteed_discount,
+    pct_conditional_discount,
+    avg_contract_term,
+    pct_solar_available,
+    pct_with_incentive,
+    avg_annual_fee,
+    avg_late_fee,
+    log_customer_size                   
+  ) %>%
+  na.omit()
+
+set.seed(123)
+rf_model <- randomForest(
+  total_transfers_out ~ ., 
+  data = rf_data,
+  ntree = 500,
+  importance = TRUE,
+  mtry = 3
+)
+
+rf_predictions <- predict(rf_model, rf_data)
+rf_ss_res <- sum((rf_data$total_transfers_out - rf_predictions)^2)
+rf_ss_tot <- sum((rf_data$total_transfers_out - mean(rf_data$total_transfers_out))^2)
+rf_r_squared <- 1 - (rf_ss_res / rf_ss_tot)
+
+importance_df <- data.frame(
+  Variable = rownames(importance(rf_model)),
+  Importance = importance(rf_model)[, "%IncMSE"]
+) %>% arrange(desc(Importance))
+```
+
+# PLOT: RANDOM FOREST VARIABLE IMPORTANCE
+
+```{r}
+plot_importance_rf <- importance_df %>%
+  mutate(
+    Variable = reorder(Variable, Importance)
+  ) %>%
+  plot_ly(
+    x = ~Variable,
+    y = ~Importance,
+    type = "bar",
+    marker = list(color = "#236192"),
+    text = ~round(Importance, 1),
+    textposition = "outside"
+  ) %>%
+  layout(
+    title = "<b>Random Forest: Variable Importance</b>",
+    xaxis = list(title = "", tickangle = -45),
+    yaxis = list(title = "% Increase in MSE<br><sub>(Higher = More Important)</sub>")
+  )
+
+plot_importance_rf
+```
+
+# XGBOOST
+
+```{r}
+if (!require(xgboost, quietly = TRUE)) {
+  install.packages("xgboost")
+  library(xgboost)
+}
+
+xgb_features <- rf_data %>% select(-total_transfers_out) %>% as.matrix()
+xgb_label <- rf_data$total_transfers_out
+xgb_data <- xgb.DMatrix(data = xgb_features, label = xgb_label)
+
+set.seed(123)
+xgb_model <- xgboost(
+  data = xgb_data,
+  nrounds = 100,
+  max_depth = 6,
+  eta = 0.1,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+xgb_predictions <- predict(xgb_model, xgb_features)
+xgb_ss_res <- sum((xgb_label - xgb_predictions)^2)
+xgb_ss_tot <- sum((xgb_label - mean(xgb_label))^2)
+xgb_r_squared <- 1 - (xgb_ss_res / xgb_ss_tot)
+
+xgb_importance <- xgb.importance(
+  feature_names = colnames(xgb_features),
+  model = xgb_model
+)
+```
+
+# PLOT: XGBOOST VARIABLE IMPORTANCE
+
+```{r}
+plot_importance_xgb <- xgb_importance %>%
+  mutate(Feature = reorder(Feature, Gain)) %>%
+  plot_ly(
+    x = ~Feature,
+    y = ~Gain,
+    type = "bar",
+    marker = list(color = "#c44536"),
+    text = ~round(Gain, 4),
+    textposition = "outside"
+  ) %>%
+  layout(
+    title = "<b>XGBoost: Feature Importance</b>",
+    xaxis = list(title = "", tickangle = -45),
+    yaxis = list(title = "Gain (Information Delivered)")
+  )
+
+plot_importance_xgb
+```
+
+# FINAL MODEL COMPARISON
+
+```{r}
+model_comparison <- data.frame(
+  Model = c(
+    "Linear Regression",
+    "Polynomial Regression",
+    "Interaction Model",
+    "Random Forest",
+    "XGBoost"
+  ),
+  R_Squared = c(
+    r_squared,
+    poly_r_squared,
+    interaction_r_squared,
+    rf_r_squared,
+    xgb_r_squared
+  )
+) %>%
+  arrange(desc(R_Squared))
+
+print(model_comparison)
+best_model <- model_comparison$Model[1]
+best_r2 <- model_comparison$R_squared[1]
+```
+
+# ANALYSIS 3: Variable Analysis
+
+# 4A. CONTRACT TERM EFFECTS
+```{r}
+contract_analysis <- analysis_data %>%
+  filter(!is.na(avg_contract_term),
+         !is.na(transfer_rate)) %>%
+  mutate(
+    contract_category = case_when(
+      avg_contract_term == 0 ~ "No fixed term",
+      avg_contract_term < 0.75 ~ "Short-term / flexible",
+      avg_contract_term <= 1.25 ~ "1-year typical",
+      TRUE ~ "Longer term (1.5–2 yrs)"
+    )
+  ) %>%
+  group_by(contract_category) %>%
+  summarise(
+    avg_transfer_rate = mean(transfer_rate, na.rm = TRUE),
+    median_transfer_rate = median(transfer_rate, na.rm = TRUE),
+    n_weeks = n(),
+    .groups = "drop"
+  )
+
+contract_analysis
+```
+
+# 4B. SOLAR AVAILABILITY EFFECTS
+
+```{r}
+solar_analysis <- analysis_data %>%
+  filter(!is.na(pct_solar_available),
+         !is.na(transfer_rate)) %>%
+  mutate(
+    solar_category = case_when(
+      pct_solar_available < 10 ~ "No solar options",
+      pct_solar_available < 50 ~ "Some solar options",
+      TRUE ~ "Mostly solar-friendly offers"
+    )
+  ) %>%
+  group_by(solar_category) %>%
+  summarise(
+    avg_transfer_rate = mean(transfer_rate, na.rm = TRUE),
+    n_weeks = n(),
+    .groups = "drop"
+  )
+
+solar_analysis
+```
+
+# 4C. INCENTIVES EFFECTS
+
+```{r}
+incentive_analysis <- analysis_data %>%
+  filter(!is.na(pct_with_incentive),
+         !is.na(transfer_rate)) %>%
+  mutate(
+    incentive_category = case_when(
+      pct_with_incentive < 10 ~ "No incentives",
+      pct_with_incentive < 50 ~ "Some incentives",
+      TRUE ~ "Most offers include incentives"
+    )
+  ) %>%
+  group_by(incentive_category) %>%
+  summarise(
+    avg_transfer_rate = mean(transfer_rate, na.rm = TRUE),
+    n_weeks = n(),
+    .groups = "drop"
+  )
+
+incentive_analysis
+```
+
+# SIMPLE SCATTER PLOTS: TRANSFER RATE vs FEES
+
+```{r}
+# Filter to rows with both fee values + transfer rate
+fees_scatter_data <- analysis_data %>%
+  filter(
+    !is.na(transfer_rate),
+    !is.na(avg_annual_fee),
+    !is.na(avg_late_fee)
+  )
+
+# ============================================================================
+# ANNUAL FEE SCATTER PLOT
+# ============================================================================
+
+plot_annual_fee_scatter <- plot_ly(
+  data = fees_scatter_data,
+  x = ~avg_annual_fee,
+  y = ~transfer_rate,
+  type = "scatter",
+  mode = "markers",
+  marker = list(size = 6, color = "rgba(35,97,146,0.5)")
+) %>%
+  layout(
+    title = "<b>Transfer Rate vs Annual Fee</b>",
+    xaxis = list(title = "Annual Fee ($)"),
+    yaxis = list(title = "Transfer Rate (%)")
+  )
+
+plot_annual_fee_scatter
+
+
+# ============================================================================
+# LATE FEE SCATTER PLOT
+# ============================================================================
+
+plot_late_fee_scatter <- plot_ly(
+  data = fees_scatter_data,
+  x = ~avg_late_fee,
+  y = ~transfer_rate,
+  type = "scatter",
+  mode = "markers",
+  marker = list(size = 6, color = "rgba(73,134,160,0.5)")
+) %>%
+  layout(
+    title = "<b>Transfer Rate vs Late Payment Fee</b>",
+    xaxis = list(title = "Late Fee ($)"),
+    yaxis = list(title = "Transfer Rate (%)")
+  )
+
+plot_late_fee_scatter
+
+```

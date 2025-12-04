@@ -57,7 +57,29 @@ nm     <- newest$name
 cli::cli_alert_info("Newest CSV in SharePoint is: {nm}")
 
 # ==============================================================================
-# 4. Download the new file to 02_data and name it 'new_data_file'
+# 4. Check if this file was already processed (via checkpoint) - if yes, STOP
+# ==============================================================================
+
+if (file.exists(checkpoint_path)) {
+  
+  completed <- read.csv(checkpoint_path, stringsAsFactors = FALSE)
+  
+  completed_filenames <- completed$source_file |>
+    trimws() |>     # remove whitespace
+    tolower()       # ignore case
+  
+  nm_clean <- tolower(trimws(nm))
+  
+  if (nm_clean %in% completed_filenames) {
+    stop(paste0(
+      "The newest file '", nm, "' has already been processed. ",
+      "To process again, remove it from transfers_completed_files.csv."
+    ))
+  }
+}
+
+# ==============================================================================
+# 5. Download the new file to 02_data and name it 'new_data_file'
 # ==============================================================================
 
 dest <- fs::path(local_monthly_data, nm)
