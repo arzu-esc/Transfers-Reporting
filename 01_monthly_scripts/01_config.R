@@ -101,4 +101,3 @@ as_bit <- function(x) {
                 ifelse(y %in% c("0","false","f","no","n"), 0L, NA_integer_))
   as.integer(out)
 }
-
