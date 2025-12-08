@@ -31,6 +31,8 @@ suppressPackageStartupMessages({
   library(htmltools)
   library(tidyr)
   library(kableExtra)
+  library(here)
+  library(forcats)
 })
 ```
 
@@ -57,7 +59,7 @@ font_axis <- list(family = "Arial", size = 11, color = colour_palette["gray_2"])
 
 
 ```{r load-data}
-transfers_raw <- readRDS("02_data/transfers_raw.rds")
+transfers_raw <- readRDS(here("02_data", "transfers_raw.rds"))
 ```
 
 ```{r prep-data}
@@ -378,7 +380,7 @@ p_drilldown
 # Calculate some insights
 latest_vs_previous <- monthly_total %>%
   arrange(desc(stat_date)) %>%
-  slice(1:2) %>%
+  dplyr:: slice(1:2) %>%
   pull(transfers)
 
 pct_change <- round(((latest_vs_previous[1] - latest_vs_previous[2]) / latest_vs_previous[2]) * 100, 1)
@@ -615,6 +617,7 @@ all_retailer_buttons <- c(
 
 p_with_filter <- p_with_filter %>%
   layout(
+    margin = list(t=130),
     title = list(
       text = paste("Transfer Trends -", first_retailer, "(Financial Year)"),
       font = font_title
@@ -635,7 +638,6 @@ p_with_filter <- p_with_filter %>%
     ),
     
     showlegend = FALSE,
-    margin = list(t = 100),
     
     # Single dropdown with all retailers grouped by time period
     updatemenus = list(
@@ -829,6 +831,7 @@ n_types <- length(transfer_types)
 
 p_type_drilldown <- p_type_drilldown %>%
   layout(
+    margin = list(t=130),
     title = list(
       text = "Transfer Trends by Type",
       font = font_title
@@ -863,7 +866,7 @@ p_type_drilldown <- p_type_drilldown %>%
         xanchor = "left",
         yanchor = "top",
         x = 0,
-        y = 1.12,
+        y = 1.15,
         bgcolor = colour_palette["gray_4"],
         bordercolor = colour_palette["gray_2"],
         borderwidth = 1,
@@ -951,7 +954,7 @@ top_10_move_in <- move_in_data %>%
   group_by(NEWFRMP_Retailer_name) %>%
   summarise(total_move_ins = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_move_ins)) %>%
-  slice(1:5) %>%
+  dplyr::slice(1:5) %>%
   pull(NEWFRMP_Retailer_name)
 
 # Monthly move-in data for top 10 retailers
@@ -1001,6 +1004,7 @@ for (retailer in top_10_move_in) {
 
 p_move_in <- p_move_in %>%
   layout(
+    margin = list(t = 80),
     title = list(
       text = "Top 5 Retailers - Move-In Transfers (Last 12 Months)",
       font = font_title
@@ -1063,7 +1067,7 @@ top_retailers_out <- transfers_out_12m %>%
   group_by(FRMP_Retailer_name) %>%
   summarise(total_out = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_out)) %>%
-  slice(1:10) %>%
+  dplyr::slice(1:10) %>%
   pull(FRMP_Retailer_name)
 
 # Monthly transfers out for top retailers
@@ -1123,6 +1127,7 @@ for (retailer in top_retailers_out) {
 
 p_transfers_out <- p_transfers_out %>%
   layout(
+    margin = list(t = 80),
     title = list(
       text = "Top 10 Retailers - Transfers OUT (Customer Losses) - Last 12 Months",
       font = font_title
@@ -1240,7 +1245,7 @@ create_sankey_top_out <- function() {
     group_by(FRMP_Retailer_name, FRMP_Retailer_size) %>%
     summarise(total_out = sum(transfers), .groups = "drop") %>%
     arrange(desc(total_out)) %>%
-    slice(1:5)
+    dplyr::slice(1:5)
   
   data_filtered <- retailer_movements_latest %>%
     filter(FRMP_Retailer_name %in% top_out_retailers$FRMP_Retailer_name)
@@ -1547,7 +1552,7 @@ top_retailers_in <- transfers_in_12m %>%
   group_by(NEWFRMP_Retailer_name) %>%
   summarise(total_in = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_in)) %>%
-  slice(1:10) %>%
+  dplyr::slice(1:10) %>%
   pull(NEWFRMP_Retailer_name)
 
 # Monthly transfers in for top retailers
@@ -1607,6 +1612,7 @@ for (retailer in top_retailers_in) {
 
 p_transfers_in <- p_transfers_in %>%
   layout(
+    margin = list(t=80),
     title = list(
       text = "Top 10 Retailers - Transfers IN (Customer Gains) - Last 12 Months",
       font = font_title
@@ -1676,7 +1682,7 @@ create_sankey_top_in <- function() {
     group_by(NEWFRMP_Retailer_name, NEWFRMP_Retailer_size) %>%
     summarise(total_in = sum(transfers), .groups = "drop") %>%
     arrange(desc(total_in)) %>%
-    slice(1:5)
+    dplyr::slice(1:5)
   
   data_filtered <- retailer_movements_latest %>%
     filter(NEWFRMP_Retailer_name %in% top_in_retailers$NEWFRMP_Retailer_name)
@@ -1785,7 +1791,6 @@ create_sankey_top_in()
 <p style="margin-top: 20px; font-style: italic; color: #666;">📊 <b>Note:</b> Refer to the summary table in section 3.2 above for detailed transfer flows between all retailers.</p>
 
 ---
-
 
 # 4. Movement Analysis Between Retailer Sizes
 
@@ -2053,6 +2058,7 @@ p_daily <- p_daily %>%
 
 p_daily <- p_daily %>%
   layout(
+    margin = list(t=80),
     title = list(
       text = paste("Daily Transfer Trends -", latest_month),
       font = font_title
@@ -2200,6 +2206,7 @@ p_net_change <- p_net_change %>%
 
 p_net_change <- p_net_change %>%
   layout(
+    margin = list(t = 130),
     title = list(
       text = paste("Net Change by Retailer -", latest_month),
       font = font_title
@@ -2226,7 +2233,7 @@ p_net_change <- p_net_change %>%
         xanchor = "left",
         yanchor = "top",
         x = 0,
-        y = 1.12,
+        y = 1.15,
         bgcolor = colour_palette["gray_4"],
         bordercolor = colour_palette["gray_2"],
         borderwidth = 1,
@@ -2286,12 +2293,7 @@ p_net_change
 ## 5.3 Transfers IN vs OUT by Retailer (Latest Month)
 
 ```{r chart-6-3-in-out}
-library(tidyr)
-library(forcats)
 
-#-----------------------------
-# PREP: ABSOLUTE VALUES
-#-----------------------------
 plot_df_absolute <- net_change_absolute %>%
   mutate(
     retailer = as.character(retailer),
@@ -2308,9 +2310,7 @@ xmax_absolute <- max(plot_df_absolute$in_transfers, plot_df_absolute$out_left, n
 xmax_absolute <- ceiling(xmax_absolute / 1000) * 1000
 
 
-#-----------------------------
-# PREP: NORMALISED VALUES
-#-----------------------------
+# Normalised values
 plot_df_normalized <- net_change_normalized %>%
   mutate(
     retailer = as.character(retailer),
@@ -2327,20 +2327,12 @@ xmax_normalized <- max(plot_df_normalized$in_rate, plot_df_normalized$out_rate, 
 xmax_normalized <- ceiling(xmax_normalized)
 
 
-#-----------------------------
-# HEIGHT FOR FULL CHART
-#-----------------------------
 h <- 28 * max(nrow(plot_df_absolute), nrow(plot_df_normalized)) + 160
 
 
-#-----------------------------
-# PLOT START
-#-----------------------------
 p_in_out <- plot_ly(height = h)
 
-#---------------------------------------------------
 # ABSOLUTE MODE TRACES (VISIBLE BY DEFAULT)
-#---------------------------------------------------
 
 # OUT (left)
 p_in_out <- p_in_out %>%
@@ -2368,10 +2360,7 @@ p_in_out <- p_in_out %>%
     visible = TRUE
   )
 
-
-#---------------------------------------------------
 # NORMALISED MODE TRACES (HIDDEN INITIALLY)
-#---------------------------------------------------
 
 # Churn (left)
 p_in_out <- p_in_out %>%
@@ -2401,35 +2390,47 @@ p_in_out <- p_in_out %>%
     visible = FALSE
   )
 
-
-#-----------------------------
 # LAYOUT + TOGGLE MENU
-#-----------------------------
 p_in_out <- p_in_out %>%
   layout(
-    title = list(text = paste("Transfers IN vs OUT –", latest_month), font = font_title),
-    barmode = "overlay",
-    bargap = 0.2,
+    margin = list(t = 130),
+    title = list(
+      text = paste("Transfers IN vs OUT –", latest_month),
+      font = font_title,
+      x = 0.5,
+      xanchor = "center"
+    ),
     xaxis = list(
       title = "Transfers (OUT ← | → IN)",
       range = c(-xmax_absolute, xmax_absolute),
-      zeroline = TRUE, zerolinecolor = colour_palette[["gray_1"]],
+      zeroline = TRUE,
+      zerolinecolor = colour_palette[["gray_1"]],
+      zerolinewidth = 2,
       tickformat = ",.0f",
-      showgrid = TRUE, gridcolor = colour_palette["gray_4"]
+      showgrid = TRUE,
+      gridcolor = colour_palette["gray_4"],
+      font = font_axis
     ),
     yaxis = list(
       title = "",
       categoryorder = "array",
       categoryarray = cat_order_absolute,
-      automargin = TRUE
+      automargin = TRUE,
+      font = font_axis
     ),
+    showlegend = FALSE,
     updatemenus = list(
       list(
         type = "buttons",
         direction = "right",
-        x = 0, y = 1.12,
+        xanchor = "left",
+        yanchor = "top",
+        x = 0,
+        y = 1.06,
         bgcolor = colour_palette["gray_4"],
         bordercolor = colour_palette["gray_2"],
+        borderwidth = 1,
+        font = list(family = "Arial", size = 11, color = colour_palette["gray_1"]),
         buttons = list(
           list(
             label = "Absolute Numbers",
@@ -2440,11 +2441,18 @@ p_in_out <- p_in_out %>%
                 xaxis = list(
                   title = "Transfers (OUT ← | → IN)",
                   range = c(-xmax_absolute, xmax_absolute),
-                  tickformat = ",.0f"
+                  zeroline = TRUE,
+                  zerolinecolor = colour_palette[["gray_1"]],
+                  zerolinewidth = 2,
+                  tickformat = ",.0f",
+                  showgrid = TRUE,
+                  gridcolor = colour_palette["gray_4"],
+                  font = font_axis
                 ),
                 yaxis = list(
                   categoryorder = "array",
-                  categoryarray = cat_order_absolute
+                  categoryarray = cat_order_absolute,
+                  font = font_axis
                 )
               )
             )
@@ -2458,11 +2466,18 @@ p_in_out <- p_in_out %>%
                 xaxis = list(
                   title = "Rate (Churn % ← | → Acquisition %)",
                   range = c(-xmax_normalized, xmax_normalized),
-                  tickformat = ".1f"
+                  zeroline = TRUE,
+                  zerolinecolor = colour_palette[["gray_1"]],
+                  zerolinewidth = 2,
+                  tickformat = ".1f",
+                  showgrid = TRUE,
+                  gridcolor = colour_palette["gray_4"],
+                  font = font_axis
                 ),
                 yaxis = list(
                   categoryorder = "array",
-                  categoryarray = cat_order_normalized
+                  categoryarray = cat_order_normalized,
+                  font = font_axis
                 )
               )
             )
@@ -2472,10 +2487,8 @@ p_in_out <- p_in_out %>%
     ),
     plot_bgcolor = "white",
     paper_bgcolor = "white",
-    font = font_main,
-    margin = list(l = 160, r = 40, t = 90, b = 60)
+    font = font_main
   )
 
 p_in_out
-
 ```
