@@ -9,6 +9,17 @@ output:
     code_folding: hide
 ---
 
+```{r}
+march25 <- transfers %>% filter(Year == 2025, Month == 3,
+                                stat_shortcut == "M57A") %>%
+  group_by(stat_date) %>%
+  summarise(total = sum(stat_value))
+
+march25_2 <- transfers_raw %>% filter(Year == 2025, Month == 3,
+                                stat_shortcut == "M57A")
+```
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = FALSE,
@@ -89,11 +100,13 @@ date_range <- paste(min(transfers$stat_date), "to", max(transfers$stat_date))
 
 # Report Summary
 
+**Data Context:** This report includes electricity small customers who (1) switch from one retailer to another while remaining at the same premises (2) move into a different property and chose a different retailer, and (3) transfer due to another reason. Small customers are defined as those consuming <= 160MWh.
+
 **Report Date:** `r format(Sys.Date(), "%d %B %Y")`  
 
 **Data Coverage:** `r date_range` (Note: FY2025-26 only includes data for July - `r latest_month`)
 
-**Total Records:** `r format(total_records, big.mark = ",")`  
+**Total Records:** `r format(total_records, big.mark = ",")`
 
 ---
 
@@ -2492,3 +2505,5 @@ p_in_out <- p_in_out %>%
 
 p_in_out
 ```
+
+
