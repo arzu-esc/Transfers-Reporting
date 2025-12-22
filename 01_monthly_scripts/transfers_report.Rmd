@@ -9,16 +9,6 @@ output:
     code_folding: hide
 ---
 
-```{r}
-march25 <- transfers %>% filter(Year == 2025, Month == 3,
-                                stat_shortcut == "M57A") %>%
-  group_by(stat_date) %>%
-  summarise(total = sum(stat_value))
-
-march25_2 <- transfers_raw %>% filter(Year == 2025, Month == 3,
-                                stat_shortcut == "M57A")
-```
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -427,6 +417,18 @@ monthly_by_retailer <- transfers %>%
     .groups = "drop"
   ) %>%
   arrange(FRMP_Retailer_name, stat_date)
+
+latest_month_test <- transfers %>%
+  filter(stat_shortcut == "M57A", 
+         !is.na(FRMP_Retailer_name),
+         !is.na(NEWFRMP_Retailer_name),
+         is_latest_month == "TRUE") %>%
+  group_by(FRMP_Retailer_name, NEWFRMP_Retailer_name, FRMP_Retailer_size, NEWFRMP_Retailer_size) %>%
+  summarise(
+    transfers = sum(stat_value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(FRMP_Retailer_name)
 
 # Quarterly by retailer
 quarterly_by_retailer <- transfers %>%
@@ -945,24 +947,24 @@ p_type_drilldown
 ## 2.2 Top 5 Move-In Retailers
 
 ```{r move-in-prep}
-# Get the most recent date and calculate 12 months ago
+# Get the most recent date and calculate 15 months ago
 max_date <- max(transfers$stat_date, na.rm = TRUE)
-months_ago_12 <- max_date %m-% months(12)
+months_ago_15 <- max_date %m-% months(15)
 
-# Filter for Move-in transfers in last 12 months
+# Filter for Move-in transfers in last 15 months
 # These are transfers where customers are moving TO a new location
 # We look at NEWFRMP_Retailer_name (destination retailer)
 move_in_data <- transfers %>%
   filter(
     stat_shortcut == "M57A",
     transfer_type == "Move-in",
-    stat_date >= months_ago_12,
+    stat_date >= months_ago_15,
     stat_date <= max_date,
     !is.na(NEWFRMP_Retailer_name)
   ) %>%
   mutate(year_month = floor_date(stat_date, "month"))
 
-# Get top 10 retailers by total move-in transfers over last 12 months
+# Get top 10 retailers by total move-in transfers over last 15 months
 top_10_move_in <- move_in_data %>%
   group_by(NEWFRMP_Retailer_name) %>%
   summarise(total_move_ins = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
@@ -1019,7 +1021,7 @@ p_move_in <- p_move_in %>%
   layout(
     margin = list(t = 80),
     title = list(
-      text = "Top 5 Retailers - Move-In Transfers (Last 12 Months)",
+      text = "Top 5 Retailers - Move-In Transfers (Last 15 Months)",
       font = font_title
     ),
     xaxis = list(
@@ -1056,27 +1058,27 @@ p_move_in
 
 # 3. Movement Analysis Between Retailers
 
-## 3.1 Transfers OUT by Retailer for the past 12 months
+## 3.1 Transfers OUT by Retailer for the past 15 months
 
 <br>
 
 ```{r chart-4-prep}
-# Get the most recent date and calculate 12 months ago
+# Get the most recent date and calculate 15 months ago
 max_date <- max(transfers$stat_date, na.rm = TRUE)
-months_ago_12 <- max_date %m-% months(12)
+months_ago_15 <- max_date %m-% months(15)
 
 # Transfers OUT = where retailer is FRMP (origin)
-# Filter for last 12 months
-transfers_out_12m <- transfers %>%
+# Filter for last 15 months
+transfers_out_15m <- transfers %>%
   filter(
     stat_shortcut == "M57A",
-    stat_date >= months_ago_12,
+    stat_date >= months_ago_15,
     stat_date <= max_date,
     !is.na(FRMP_Retailer_name)
   )
 
-# Get top 10 retailers by total transfers out in last 12 months
-top_retailers_out <- transfers_out_12m %>%
+# Get top 10 retailers by total transfers out in last 15 months
+top_retailers_out <- transfers_out_15m %>%
   group_by(FRMP_Retailer_name) %>%
   summarise(total_out = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_out)) %>%
@@ -1084,7 +1086,7 @@ top_retailers_out <- transfers_out_12m %>%
   pull(FRMP_Retailer_name)
 
 # Monthly transfers out for top retailers
-monthly_out <- transfers_out_12m %>%
+monthly_out <- transfers_out_15m %>%
   filter(FRMP_Retailer_name %in% top_retailers_out) %>%
   mutate(year_month = floor_date(stat_date, "month")) %>%
   group_by(year_month, FRMP_Retailer_name) %>%
@@ -1113,7 +1115,7 @@ retailer_out_colors <- setNames(
 ```
 
 ```{r chart-4-transfers-out}
-# Create line chart for transfers OUT (last 12 months)
+# Create line chart for transfers OUT (last 15 months)
 p_transfers_out <- plot_ly()
 
 for (retailer in top_retailers_out) {
@@ -1142,7 +1144,7 @@ p_transfers_out <- p_transfers_out %>%
   layout(
     margin = list(t = 80),
     title = list(
-      text = "Top 10 Retailers - Transfers OUT (Customer Losses) - Last 12 Months",
+      text = "Top 10 Retailers - Transfers OUT (Customer Losses) - Last 15 Months",
       font = font_title
     ),
     xaxis = list(
@@ -1180,17 +1182,17 @@ p_transfers_out
 ### Key Insights - Transfers OUT
 
 ```{r insights-4, results='asis'}
-# Top losers in last 12 months
-latest_fy_out <- transfers_out_12m %>%
+# Top losers in last 15 months
+latest_fy_out <- transfers_out_15m %>%
   filter(FRMP_Retailer_name %in% top_retailers_out) %>%
   group_by(FRMP_Retailer_name) %>%
   summarise(total_out = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_out))
 
-# Top losers in last 12 months
+# Top losers in last 15 months
 cat(paste0(
-  "<b>Top retailers losing customers (Last 12 Months: ",
-  format(months_ago_12, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
+  "<b>Top retailers losing customers (Last 15 Months: ",
+  format(months_ago_15, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
 ))
 
 for (i in 1:min(5, nrow(latest_fy_out))) {
@@ -1220,19 +1222,16 @@ latest_month_date <- transfers %>%
 
 # All retailer-to-retailer movements for latest month
 retailer_movements_latest <- transfers %>%
-  filter(
-    stat_shortcut == "M57A",
-    stat_date == latest_month_date,
-    !is.na(FRMP_Retailer_name),
-    !is.na(NEWFRMP_Retailer_name)
+  filter(stat_shortcut == "M57A", 
+         !is.na(FRMP_Retailer_name),
+         !is.na(NEWFRMP_Retailer_name),
+         is_latest_month == "TRUE") %>%
+  group_by(FRMP_Retailer_name, NEWFRMP_Retailer_name, FRMP_Retailer_size, NEWFRMP_Retailer_size) %>%
+  summarise(
+    transfers = sum(stat_value, na.rm = TRUE),
+    .groups = "drop"
   ) %>%
-  group_by(
-    FRMP_Retailer_name,
-    NEWFRMP_Retailer_name,
-    FRMP_Retailer_size,
-    NEWFRMP_Retailer_size
-  ) %>%
-  summarise(transfers = sum(stat_value, na.rm = TRUE), .groups = "drop")
+  arrange(FRMP_Retailer_name)
 
 # Retailer colours by size
 retailer_size_colors <- c(
@@ -1547,21 +1546,21 @@ function toggleTable(id) {
 
 
 
-## 3.3 Transfers IN by Retailer for the past 12 months
+## 3.3 Transfers IN by Retailer for the past 15 months
 
 ```{r chart-5-prep}
 # Transfers IN = where retailer is NEWFRMP (destination)
-# Filter for last 12 months
-transfers_in_12m <- transfers %>%
+# Filter for last 15 months
+transfers_in_15m <- transfers %>%
   filter(
     stat_shortcut == "M57A",
-    stat_date >= months_ago_12,
+    stat_date >= months_ago_15,
     stat_date <= max_date,
     !is.na(NEWFRMP_Retailer_name)
   )
 
-# Get top 10 retailers by total transfers in in last 12 months
-top_retailers_in <- transfers_in_12m %>%
+# Get top 10 retailers by total transfers in in last 15 months
+top_retailers_in <- transfers_in_15m %>%
   group_by(NEWFRMP_Retailer_name) %>%
   summarise(total_in = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_in)) %>%
@@ -1569,7 +1568,7 @@ top_retailers_in <- transfers_in_12m %>%
   pull(NEWFRMP_Retailer_name)
 
 # Monthly transfers in for top retailers
-monthly_in <- transfers_in_12m %>%
+monthly_in <- transfers_in_15m %>%
   filter(NEWFRMP_Retailer_name %in% top_retailers_in) %>%
   mutate(year_month = floor_date(stat_date, "month")) %>%
   group_by(year_month, NEWFRMP_Retailer_name) %>%
@@ -1598,7 +1597,7 @@ retailer_in_colors <- setNames(
 ```
 
 ```{r chart-5-transfers-in}
-# Create line chart for transfers IN (last 12 months)
+# Create line chart for transfers IN (last 15 months)
 p_transfers_in <- plot_ly()
 
 for (retailer in top_retailers_in) {
@@ -1627,7 +1626,7 @@ p_transfers_in <- p_transfers_in %>%
   layout(
     margin = list(t=80),
     title = list(
-      text = "Top 10 Retailers - Transfers IN (Customer Gains) - Last 12 Months",
+      text = "Top 10 Retailers - Transfers IN (Customer Gains) - Last 15 Months",
       font = font_title
     ),
     xaxis = list(
@@ -1665,16 +1664,16 @@ p_transfers_in
 ### Key Insights - Transfers IN
 
 ```{r insights-5, results='asis'}
-# Top gainers in last 12 months
-latest_fy_in <- transfers_in_12m %>%
+# Top gainers in last 15 months
+latest_fy_in <- transfers_in_15m %>%
   filter(NEWFRMP_Retailer_name %in% top_retailers_in) %>%
   group_by(NEWFRMP_Retailer_name) %>%
   summarise(total_in = sum(stat_value, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(total_in))
 
 cat(paste0(
-  "<b>Top retailers gaining customers (Last 12 Months: ",
-  format(months_ago_12, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
+  "<b>Top retailers gaining customers (Last 15 Months: ",
+  format(months_ago_15, "%B %Y"), " to ", format(max_date, "%B %Y"), "):</b><br><br>"
 ))
 
 for (i in 1:min(5, nrow(latest_fy_in))) {
@@ -1803,11 +1802,140 @@ create_sankey_top_in()
 
 <p style="margin-top: 20px; font-style: italic; color: #666;">📊 <b>Note:</b> Refer to the summary table in section 3.2 above for detailed transfer flows between all retailers.</p>
 
+## 3.5 Retailer Transfer Metrics Summary
+
+### Select Month {.tabset}
+
+```{r section-3-5-prep}
+# Get last 15 months with M57A and M71 data
+available_months_metrics <- transfers %>%
+  filter(stat_shortcut %in% c("M57A", "M71")) %>%
+  distinct(YearMonth, stat_date) %>%
+  arrange(desc(stat_date)) %>%
+  distinct(YearMonth, .keep_all = TRUE) %>%
+  slice(1:15)
+
+# Pre-calculate M71 data for all months (for efficiency)
+m71_all <- transfers %>%
+  filter(stat_shortcut == "M71", !is.na(FRMP_Retailer_name)) %>%
+  group_by(YearMonth, FRMP_Retailer_name) %>%
+  summarise(active_nmis = sum(stat_value, na.rm = TRUE), .groups = "drop")
+
+# Pre-calculate M57A transfers OUT for all months
+transfers_out_all <- transfers %>%
+  filter(stat_shortcut == "M57A", !is.na(FRMP_Retailer_name)) %>%
+  group_by(YearMonth, retailer = FRMP_Retailer_name) %>%
+  summarise(transfers_out = sum(stat_value, na.rm = TRUE), .groups = "drop")
+
+# Pre-calculate M57A transfers IN for all months
+transfers_in_all <- transfers %>%
+  filter(stat_shortcut == "M57A", !is.na(NEWFRMP_Retailer_name)) %>%
+  group_by(YearMonth, retailer = NEWFRMP_Retailer_name) %>%
+  summarise(transfers_in = sum(stat_value, na.rm = TRUE), .groups = "drop")
+
+# Initialize the list to store metrics
+metrics_list <- list()
+
+# Pre-calculate metrics for all 15 months
+for (i in 1:nrow(available_months_metrics)) {
+  month_date <- available_months_metrics$stat_date[i]
+  month_str <- format(as.Date(month_date), "%Y-%m")
+  prev_month_str <- format(as.Date(month_date) %m-% months(1), "%Y-%m")
+  
+  # Get pre-calculated data for this month
+  m71_month <- m71_all %>% filter(YearMonth == prev_month_str)
+  out_month <- transfers_out_all %>% filter(YearMonth == month_str)
+  in_month <- transfers_in_all %>% filter(YearMonth == month_str)
+  
+  # Combine metrics
+  metrics <- out_month %>%
+    full_join(in_month, by = "retailer") %>%
+    left_join(m71_month, by = c("retailer" = "FRMP_Retailer_name")) %>%
+    mutate(
+      transfers_out = replace_na(transfers_out, 0),
+      transfers_in = replace_na(transfers_in, 0),
+      active_nmis = replace_na(active_nmis, 0),
+      net_transfer = transfers_in - transfers_out,
+      churn_rate = ifelse(active_nmis > 0, (transfers_out / active_nmis) * 100, 0),
+      acquisition_rate = ifelse(active_nmis > 0, (transfers_in / active_nmis) * 100, 0),
+      net_rate = ifelse(active_nmis > 0, (net_transfer / active_nmis) * 100, 0)
+    ) %>%
+    select(retailer, transfers_out, transfers_in, active_nmis, net_transfer, 
+           churn_rate, acquisition_rate, net_rate) %>%
+    arrange(desc(abs(net_transfer)))
+  
+  metrics_list[[month_str]] <- metrics
+}
+```
+
+```{r section-3-5-display, echo=FALSE, results='asis'}
+retailer_order <- transfers %>%
+  pull(FRMP_Retailer_name) %>%
+  unique() %>%
+  na.omit() %>%
+  sort()
+
+for (i in seq_len(nrow(available_months_metrics))) {
+
+  month_date  <- available_months_metrics$stat_date[i]
+  month_str   <- format(as.Date(month_date), "%Y-%m")
+  month_label <- format(as.Date(month_date), "%B %Y")
+
+  # ---- Tab header (THIS creates the tab) ----
+  cat("#### ", month_label, "\n\n")
+
+  metrics_data <- metrics_list[[month_str]]
+
+  if (!is.null(metrics_data) && nrow(metrics_data) > 0) {
+
+    metrics_data %>%
+      mutate(
+        retailer = factor(retailer, levels = retailer_order)
+      ) %>%
+      arrange(retailer) %>%
+      transmute(
+        Retailer = retailer,
+        `Active NMIs` = format(active_nmis, big.mark = ","),
+        `Transfers IN` = format(transfers_in, big.mark = ","),
+        `Transfers OUT` = format(transfers_out, big.mark = ","),
+        `Net Transfer` = format(net_transfer, big.mark = ","),
+        `Churn Rate (%)` = sprintf("%.2f%%", churn_rate),
+        `Acquisition Rate (%)` = sprintf("%.2f%%", acquisition_rate),
+        `Net Rate (%)` = sprintf("%.2f%%", net_rate)
+      ) %>%
+      kable(
+        format = "html",
+        escape = FALSE,
+        align = c("l", rep("r", 7))
+      ) %>%
+      kable_styling(
+        full_width = TRUE,
+        bootstrap_options = c("striped", "hover", "condensed", "bordered"),
+        font_size = 12
+      ) %>%
+      print()
+
+
+  } else {
+    cat("No data available.\n\n")
+  }
+}
+```
+
 ---
 
-# 4. Movement Analysis Between Retailer Sizes
+<br>
+<br>
+
+---
+
+<!-- force tabset boundary -->
+
+## 4. Movement Analysis Between Retailer Sizes
 
 ## 4.1 Movement Between Retailer Sizes (Sankey Diagram)
+
+### Select Month {.tabset}
 
 ```{r chart-6-prep-2}
 # Get current financial year
@@ -1911,43 +2039,29 @@ create_sankey <- function(month_date) {
 }
 ```
 
-```{r chart-6-display-2, results='asis'}
-# Display Sankey for each month with tabbed interface
-cat("### Select Month {.tabset .tabset-fade}\n\n")
+```{r section-4-1-sankey-only, echo=FALSE, results='asis'}
+library(htmltools)
 
-for (i in 1:nrow(available_months)) {
-  month_date <- available_months$stat_date[i]
-  month_label <- format(month_date, "%B %Y")
-  
-  cat(sprintf("#### %s\n\n", month_label))
-  
-  # Create and print the Sankey diagram
-  p <- create_sankey(month_date)
-  print(htmltools::tagList(p))
-  
-  cat("\n\n")
-  
-  # Add summary table
-  summary_data <- size_movements_by_month %>%
-    filter(stat_date == month_date) %>%
-    mutate(
-      movement = paste0(FRMP_Retailer_size, " → ", NEWFRMP_Retailer_size),
-      pct = round((transfers / sum(transfers)) * 100, 1)
-    ) %>%
-    arrange(desc(transfers)) %>%
-    select(Movement = movement, Transfers = transfers, `%` = pct)
-  
-  print(knitr::kable(
-    summary_data, 
-    format.args = list(big.mark = ","),
-    caption = paste("Movement Summary -", month_label)
-  ))
-  
+for (i in seq_len(nrow(available_months))) {
+
+  month_date  <- available_months$stat_date[i]
+  month_label <- format(as.Date(month_date), "%B %Y")
+
+  # ---- Create tab ----
+  cat("#### ", month_label, "\n\n")
+
+  # ---- Render Sankey ----
+  sankey_plot <- create_sankey(month_date)
+
+  if (!is.null(sankey_plot)) {
+    print(tagList(sankey_plot))
+  }
+
   cat("\n\n")
 }
-
-cat("### {-}\n\n")
 ```
+
+---
 
 ### Key Insights - Movement Between Retailers (Sankey Diagram)
 
