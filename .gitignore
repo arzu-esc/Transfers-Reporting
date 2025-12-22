@@ -10,6 +10,7 @@
 00_mass_upload_scripts/data
 04_outputs/missing_ids
 archive/
+*.html
 
 # Keep folder structure
 !02_data/.gitkeep
