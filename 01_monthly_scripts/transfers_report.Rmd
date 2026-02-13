@@ -60,7 +60,7 @@ font_axis <- list(family = "Arial", size = 11, color = colour_palette["gray_2"])
 
 
 ```{r load-data}
-transfers_raw <- readRDS(here("02_data", "transfers_raw.rds"))
+transfers_raw <- readRDS(here("01_monthly_scripts/02_data", "transfers_raw.rds"))
 ```
 
 ```{r prep-data}

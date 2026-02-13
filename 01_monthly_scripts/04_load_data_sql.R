@@ -29,18 +29,12 @@ cli::cli_alert_info("Loading file from 02_get_new_month_data.R → {source_name}
 # 2. Connect to SQL Server
 # ==============================================================================
 
-con <- DBI::dbConnect(
-  odbc::odbc(),
-  Driver                  = driver,
-  Server                  = server,
-  Database                = db_name,
-  Authentication          = auth,
-  UID                     = UID,
-  Encrypt                 = "yes",
-  TrustServerCertificate  = "yes",
-  Timeout                 = 0
-)
-on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
+cli::cli_alert_info("Connecting to SQL and reading unified lookup table…")
+
+# Check if connection exists and is valid
+if (!exists("con", envir = .GlobalEnv) || !dbIsValid(con)) {
+  stop("Valid database connection not found. Run 00_run_all.R instead of sourcing this script directly.")
+}
 
 sql_cols <- DBI::dbListFields(con, tbl_id)
 

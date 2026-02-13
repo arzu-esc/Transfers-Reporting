@@ -12,6 +12,11 @@
 # 1. Load Packages
 # ==============================================================================
 
+# Install odbc if not already installed
+if (!requireNamespace("odbc", quietly = TRUE)) {
+  install.packages("odbc")
+}
+
 suppressPackageStartupMessages({
   library(DBI)
   library(odbc)
@@ -32,6 +37,7 @@ suppressPackageStartupMessages({
   library(janitor)
   library(readxl)
   library(tidyr)
+  library(rmarkdown)
 })
 
 # ==============================================================================
@@ -101,3 +107,17 @@ as_bit <- function(x) {
                 ifelse(y %in% c("0","false","f","no","n"), 0L, NA_integer_))
   as.integer(out)
 }
+
+# ==============================================================================
+# 7. Create Database Connection
+# ==============================================================================
+con <- dbConnect(
+  odbc::odbc(),
+  Driver   = driver,
+  Server   = server,
+  Database = db_name,
+  Authentication = auth,
+  UID = UID
+)
+
+cli::cli_alert_success("Database connection established")

@@ -4,7 +4,7 @@
 #
 # Description:
 #   - Downloads RetailersLookup.xlsx from SharePoint.
-#   - Expects three source columns: PARTICIPANTID, CORPORATIONID, ESC RetailerCommonID.
+#   - Finds 3 source columns: PARTICIPANTID, CORPORATIONID, ESC RetailerCommonID
 #   - Normalises all IDs and expands rows:
 #       - If PARTICIPANTID == CORPORATIONID → keep one row.
 #       - If they differ → produce two rows.
@@ -22,7 +22,7 @@
 # ==============================================================================
 
 xlsx_filename          <- "RetailersLookup.xlsx"
-sheet_name             <- "CorporationID Lookup"  
+sheet_name             <- "CorporationID Lookup"
 
 cli::cli_h1("Updating Retailers Lookup Table")
 
@@ -31,7 +31,6 @@ dl_path   <- paste0(sharepoint_aemo_folder, "/", xlsx_filename)
 
 cli_alert_info("Downloading: {dl_path}")
 DRIVE$get_item(dl_path)$download(dest = temp_file)
-on.exit({ if (file_exists(temp_file)) file_delete(temp_file) }, add = TRUE)
 
 cli_alert_success("Downloaded to temporary file: {temp_file}")
 
@@ -47,7 +46,7 @@ df <- read_excel(temp_file, sheet = sheet_name)
 needed_cols <- c("PARTICIPANTID", "CORPORATIONID", "ESC RetailerCommonID")
 missing_cols <- setdiff(needed_cols, names(df))
 if (length(missing_cols)) {
-  stop("❌ Missing required columns in Excel: ", paste(missing_cols, collapse = ", "))
+  stop("❌ Missing required columns: ", paste(missing_cols, collapse = ", "))
 }
 
 # ==============================================================================
@@ -109,10 +108,8 @@ con <- dbConnect(
   Packet_Size     = 32767,
   QueryTimeout    = 0
 )
-on.exit(try(dbDisconnect(con), silent = TRUE), add = TRUE)
 
 cli_alert_success("Connected.")
-
 
 # ==============================================================================
 # 5. Truncate + Reload unified lookup table
@@ -133,3 +130,6 @@ cli_alert_success("Lookup refresh complete.")
 cli_alert_success("→ aemo_retailer_lookup now contains {format(n_rows, big.mark=',')} rows.")
 
 cli_alert("Retailer Lookup Update Successful ✔")
+
+on.exit({ if (file_exists(temp_file)) file_delete(temp_file) }, add = TRUE)
+on.exit(try(dbDisconnect(con), silent = TRUE), add = TRUE)

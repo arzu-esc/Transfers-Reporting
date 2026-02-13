@@ -44,25 +44,16 @@ if (!all(required_cols %in% names(df))) {
   stop("Incoming CSV is missing required columns: stat_shortcut, frmp")
 }
 
-
 # ==============================================================================
-# 3. Load unified lookup table from SQL
+# 3. Use existing database connection
 # ==============================================================================
 
 cli::cli_alert_info("Connecting to SQL and reading unified lookup table…")
 
-con <- DBI::dbConnect(
-  odbc::odbc(),
-  Driver                 = driver,
-  Server                 = server,
-  Database               = db_name,
-  uid                    = UID,
-  Authentication         = auth,
-  Encrypt                = "yes",
-  TrustServerCertificate = "yes",
-  Timeout                = 0
-)
-on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
+# Check if connection exists and is valid
+if (!exists("con", envir = .GlobalEnv) || !dbIsValid(con)) {
+  stop("Valid database connection not found. Run 00_run_all.R instead of sourcing this script directly.")
+}
 
 lookup_tbl <- DBI::dbReadTable(
   con, 
@@ -72,14 +63,6 @@ lookup_tbl <- DBI::dbReadTable(
     id = trimws(as.character(id)),
     licence_common_id = trimws(as.character(licence_common_id))
   )
-
-cli::cli_alert_success("Unified lookup loaded → {nrow(lookup_tbl)} rows.")
-
-# IMPORTANT:
-# Include IDs even if licence_common_id is blank
-lookup_ids <- lookup_tbl %>%
-  filter(!is.na(id), id != "") %>%
-  pull(id)
 
 # ==============================================================================
 # 4. Prepare for validation
@@ -199,9 +182,12 @@ if (length(fail_rows)) {
       "Validation failed. FRMP or NEWFRMP values are missing from the unified Retailer Lookup.",
       "",
       "To fix:",
-      "  1. Update RetailersLookup.xlsx with correct Participant/CorporationIDs.",
-      "  2. Run update_retailers_lookup.R to refresh dbo.aemo_retailer_lookup.",
-      "  3. Re-run this validation script.",
+      "  1. Run the below to see missing ids.
+            missing_ids <- read.csv('04_outputs/missing_ids/missing_ids_summary.csv')
+            View(missing_ids)",
+      "  2. Update RetailersLookup.xlsx with correct Participant/CorporationIDs.",
+      "  3. Run update_retailers_lookup.R to refresh dbo.aemo_retailer_lookup.",
+      "  4. Re-run this validation script.",
       sep = "\n"
     ),
     call. = FALSE
@@ -210,3 +196,4 @@ if (length(fail_rows)) {
 } else {
   cli::cli_alert_success("Validation passed. All retailer IDs map correctly.")
 }
+
