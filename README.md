@@ -108,7 +108,7 @@ This project is used to collect monthly AEMO (Australian Energy Market Operator)
    - Select File → New Project → Version Control → Git
    - Paste repository URL:
 ```bash
-     https://github.com/arzu-esc/aemo-retail-transfers.git
+     https://github.com/arzu-esc/Transfers-Reporting.git
 ```
    > ⚠️ **Important:** Ensure project directory is **NOT** in OneDrive or SharePoint (prevents file locking issues)
 
