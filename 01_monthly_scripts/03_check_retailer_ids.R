@@ -15,28 +15,39 @@
 # Last updated: 2025-11-25
 # ==============================================================================
 
-
 # ==============================================================================
-# 1. Validate that 02_get_new_month_data.R ran
+# 1. Get latest file from transfers_completed_files.csv
 # ==============================================================================
 
-if (!exists("new_data_file", envir = .GlobalEnv)) {
-  stop("new_data_file not found — run 02_get_new_month_data.R first.")
+completed_files_path <- file.path("05_checkpoints", "transfers_completed_files.csv")
+
+if (!file.exists(completed_files_path)) {
+  stop("transfers_completed_files.csv not found in 05_checkpoints/")
 }
 
-csv_path <- get("new_data_file", envir = .GlobalEnv)
-cli::cli_alert_info("Validating retailer IDs in monthly file: {csv_path}")
+completed_files <- read_csv(
+  completed_files_path,
+  col_types = cols(.default = col_character()),
+  show_col_types = FALSE)
 
+csv_path <- completed_files %>%
+  slice_tail(n = 1) %>%
+  pull(1)
+
+if (is.na(csv_path) || csv_path == "") {
+  stop("No file path found in transfers_completed_files.csv")
+}
+
+cli::cli_alert_info("Validating retailer IDs in monthly file: {csv_path}")
 
 # ==============================================================================
 # 2. Read CSV
 # ==============================================================================
 
 df <- read_csv(
-  csv_path,
+  file.path("02_data", csv_path),
   col_types = cols(.default = col_character()),
-  show_col_types = FALSE
-) %>% 
+  show_col_types = FALSE) %>% 
   clean_names()
 
 required_cols <- c("stat_shortcut", "frmp")
@@ -45,24 +56,31 @@ if (!all(required_cols %in% names(df))) {
 }
 
 # ==============================================================================
-# 3. Use existing database connection
+# 3. Connect to SQL and read lookup table
 # ==============================================================================
 
 cli::cli_alert_info("Connecting to SQL and reading unified lookup table…")
 
-# Check if connection exists and is valid
-if (!exists("con", envir = .GlobalEnv) || !dbIsValid(con)) {
-  stop("Valid database connection not found. Run 00_run_all.R instead of sourcing this script directly.")
-}
+con_check <- dbConnect(
+  odbc::odbc(),
+  Driver          = driver,
+  Server          = server,
+  Database        = db_name,
+  Authentication  = auth,
+  uid             = UID,
+  Mars_Connection = "yes",
+  Packet_Size     = 32767,
+  QueryTimeout    = 0)
 
 lookup_tbl <- DBI::dbReadTable(
-  con, 
-  DBI::Id(schema = "dbo", table = "aemo_retailer_lookup")
-) %>%
+  con_check,
+  DBI::Id(schema = "dbo", table = "aemo_retailer_lookup")) %>%
+  
   mutate(
-    id = trimws(as.character(id)),
-    licence_common_id = trimws(as.character(licence_common_id))
-  )
+    id                = trimws(as.character(id)),
+    licence_common_id = trimws(as.character(licence_common_id)))
+
+cli::cli_alert_success("Lookup table loaded: {nrow(lookup_tbl)} rows.")
 
 # ==============================================================================
 # 4. Prepare for validation
@@ -92,8 +110,7 @@ if (nrow(m71_rows)) {
       transmute(
         stat_shortcut = "M71",
         id_type       = "FRMP",
-        missing_id    = frmp
-      )
+        missing_id    = frmp)
     
     fail_rows[[length(fail_rows) + 1]] <- m71_summary
   }
@@ -131,8 +148,7 @@ if (nrow(m57a_rows)) {
       transmute(
         stat_shortcut = "M57A",
         id_type       = "FRMP",
-        missing_id    = frmp
-      )
+        missing_id    = frmp)
     fail_rows[[length(fail_rows) + 1]] <- bad_frmp
   }
   
@@ -148,8 +164,7 @@ if (nrow(m57a_rows)) {
         transmute(
           stat_shortcut = "M57A",
           id_type       = "NEWFRMP",
-          missing_id    = newfrmp
-        )
+          missing_id    = newfrmp)
       fail_rows[[length(fail_rows) + 1]] <- bad_newfrmp
     }
   }
@@ -188,12 +203,9 @@ if (length(fail_rows)) {
       "  2. Update RetailersLookup.xlsx with correct Participant/CorporationIDs.",
       "  3. Run update_retailers_lookup.R to refresh dbo.aemo_retailer_lookup.",
       "  4. Re-run this validation script.",
-      sep = "\n"
-    ),
-    call. = FALSE
-  )
+      sep = "\n"),
+    call. = FALSE)
   
 } else {
   cli::cli_alert_success("Validation passed. All retailer IDs map correctly.")
 }
-

@@ -191,7 +191,7 @@ This shows:
 4. Run script to Refresh SQL Lookup Table:
     
 ```r 
-source("03_lookup_changes/update_retailers_lookup.R")
+source("../03_lookup_changes/update_retailers_lookup.R")
 ```
 
 5. Run retailer id validation script again to make sure mapping is working: 

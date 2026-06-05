@@ -21,8 +21,8 @@
 # 1. Download the Excel file from SharePoint
 # ==============================================================================
 
-xlsx_filename          <- "RetailersLookup.xlsx"
-sheet_name             <- "CorporationID Lookup"
+xlsx_filename <- "RetailersLookup.xlsx"
+sheet_name    <- "CorporationID Lookup"
 
 cli::cli_h1("Updating Retailers Lookup Table")
 
@@ -31,22 +31,22 @@ dl_path   <- paste0(sharepoint_aemo_folder, "/", xlsx_filename)
 
 cli_alert_info("Downloading: {dl_path}")
 DRIVE$get_item(dl_path)$download(dest = temp_file)
-
 cli_alert_success("Downloaded to temporary file: {temp_file}")
-
 
 # ==============================================================================
 # 2. Load Excel and validate columns
 # ==============================================================================
 
 cli_alert_info("Reading Excel sheet: {sheet_name}")
-
 df <- read_excel(temp_file, sheet = sheet_name)
 
-needed_cols <- c("PARTICIPANTID", "CORPORATIONID", "ESC RetailerCommonID")
+# Safe to delete now that it's been read into memory
+if (file_exists(temp_file)) file_delete(temp_file)
+
+needed_cols  <- c("PARTICIPANTID", "CORPORATIONID", "ESC RetailerCommonID")
 missing_cols <- setdiff(needed_cols, names(df))
 if (length(missing_cols)) {
-  stop("❌ Missing required columns: ", paste(missing_cols, collapse = ", "))
+  stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
 }
 
 # ==============================================================================
@@ -57,35 +57,29 @@ cli_alert_info("Transforming lookup data…")
 
 lookup_tbl <- df %>%
   transmute(
-    participant_id     = as.character(`PARTICIPANTID`),
-    corporation_id     = as.character(`CORPORATIONID`),
-    licence_common_id  = as.character(`ESC RetailerCommonID`)
-  ) %>%
+    participant_id    = as.character(`PARTICIPANTID`),
+    corporation_id    = as.character(`CORPORATIONID`),
+    licence_common_id = as.character(`ESC RetailerCommonID`)) %>%
   mutate(across(everything(), ~ trimws(.))) %>%
   
   # Drop rows where participant + corp IDs are BOTH empty
   filter(
-    !(
-      (is.na(participant_id) | participant_id == "") &
-        (is.na(corporation_id) | corporation_id == "")
-    )
-  ) %>%
+    !((is.na(participant_id) | participant_id == "") &
+        (is.na(corporation_id) | corporation_id == ""))) %>%
   
   # Split into long format → one ID per row
   pivot_longer(
-    cols = c(participant_id, corporation_id),
-    names_to = "id_type",
-    values_to = "id"
-  ) %>%
+    cols      = c(participant_id, corporation_id),
+    names_to  = "id_type",
+    values_to = "id") %>%
   
   # Remove empty ID rows
   filter(!is.na(id), id != "") %>%
   
   # Final unified structure
   transmute(
-    id = id,
-    licence_common_id = licence_common_id
-  ) %>%
+    id                = id,
+    licence_common_id = licence_common_id) %>%
   
   distinct()
 
@@ -97,17 +91,16 @@ cli_alert_success("Unified lookup created: {nrow(lookup_tbl)} unique ID rows.")
 
 cli_alert_info("Connecting to SQL Server…")
 
-con <- dbConnect(
+con_retailers <- dbConnect(
   odbc::odbc(),
-  Driver         = driver,
-  Server         = server,
-  Database       = db_name,
-  Authentication = auth,
-  uid            = UID,
+  Driver          = driver,
+  Server          = server,
+  Database        = db_name,
+  Authentication  = auth,
+  uid             = UID,
   Mars_Connection = "yes",
   Packet_Size     = 32767,
-  QueryTimeout    = 0
-)
+  QueryTimeout    = 0)
 
 cli_alert_success("Connected.")
 
@@ -115,21 +108,17 @@ cli_alert_success("Connected.")
 # 5. Truncate + Reload unified lookup table
 # ==============================================================================
 
-# SQL unified lookup table
 lookup_table <- DBI::Id(schema = "dbo", table = "aemo_retailer_lookup")
 
 cli_alert_info("Truncating existing table dbo.aemo_retailer_lookup…")
-dbExecute(con, "TRUNCATE TABLE dbo.aemo_retailer_lookup;")
+dbExecute(con_retailers, "TRUNCATE TABLE dbo.aemo_retailer_lookup;")
 
 cli_alert_info("Reloading new lookup table…")
-dbAppendTable(con, lookup_table, lookup_tbl)
+dbAppendTable(con_retailers, lookup_table, lookup_tbl)
 
-n_rows <- dbGetQuery(con, "SELECT COUNT(*) AS n FROM dbo.aemo_retailer_lookup;")$n
-
+n_rows <- dbGetQuery(con_retailers, "SELECT COUNT(*) AS n FROM dbo.aemo_retailer_lookup;")$n
 cli_alert_success("Lookup refresh complete.")
-cli_alert_success("→ aemo_retailer_lookup now contains {format(n_rows, big.mark=',')} rows.")
+cli_alert_success("→ aemo_retailer_lookup now contains {format(n_rows, big.mark = ',')} rows.")
 
-cli_alert("Retailer Lookup Update Successful ✔")
-
-on.exit({ if (file_exists(temp_file)) file_delete(temp_file) }, add = TRUE)
-on.exit(try(dbDisconnect(con), silent = TRUE), add = TRUE)
+DBI::dbDisconnect(con_retailers)
+cli_alert_success("Retailer Lookup Update Successful ✔")

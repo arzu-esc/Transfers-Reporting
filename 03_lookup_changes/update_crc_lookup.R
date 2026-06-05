@@ -10,7 +10,6 @@
 #
 #   Assumes dbo.aemo_crc_lookup already exists in SQL Server.
 # ==============================================================================
-
 suppressPackageStartupMessages({
   library(Microsoft365R)
   library(readxl)
@@ -26,7 +25,6 @@ sharepoint_url         <- Sys.getenv("SHAREPOINT_SITE_URL")
 sharepoint_aemo_folder <- Sys.getenv("SHAREPOINT_AEMO_FOLDER")  # e.g. "AEMO"
 xlsx_filename          <- "CRC_lookup.xlsx"
 sheet_name             <- "Lookup"
-
 driver            <- Sys.getenv("SQL_DRIVER", unset = "ODBC Driver 17 for SQL Server")
 sql_server_name   <- Sys.getenv("SQL_SERVER")
 sql_database_name <- Sys.getenv("SQL_DATABASE")
@@ -37,17 +35,18 @@ auth              <- Sys.getenv("SQL_AUTHENTICATION", unset = "ActiveDirectoryIn
 cli_alert_info("Connecting to SharePoint and downloading {xlsx_filename} ...")
 SITE  <- get_sharepoint_site(site_url = sharepoint_url)
 DRIVE <- SITE$get_drive("Documents")
-
 temp_file <- tempfile(fileext = ".xlsx")
 DRIVE$get_item(paste0(sharepoint_aemo_folder, "/", xlsx_filename))$download(dest = temp_file)
-on.exit({ if (file_exists(temp_file)) file_delete(temp_file) }, add = TRUE)
 cli_alert_success("Downloaded temporary file: {temp_file}")
 
 # ====== READ EXCEL (minimal checks) ======
 cli_alert_info("Reading sheet: {sheet_name}")
 df <- read_excel(temp_file, sheet = sheet_name)
 
-needed  <- c(
+# Safe to delete now that it's been read into memory
+if (file_exists(temp_file)) file_delete(temp_file)
+
+needed <- c(
   "CRC_Code",
   "Event",
   "Sub_event",
@@ -80,28 +79,28 @@ cli_alert_success("Prepared CRC lookup rows: {nrow(crc_tbl)}")
 
 # ====== SQL CONNECTION ======
 cli_alert_info("Connecting to SQL Server…")
-con <- dbConnect(
+con_crc <- dbConnect(
   odbc::odbc(),
-  Driver         = driver,
-  Server         = sql_server_name,
-  Database       = sql_database_name,
-  uid            = user_id,
-  Authentication = auth,
+  Driver          = driver,
+  Server          = sql_server_name,
+  Database        = sql_database_name,
+  uid             = user_id,
+  Authentication  = auth,
   Mars_Connection = "yes",
   Packet_Size     = 32767,
-  QueryTimeout    = 0
-)
-on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
+  QueryTimeout    = 0)
+
 cli_alert_success("Connected to {sql_database_name}")
 
 # ====== TRUNCATE + RELOAD (table assumed to exist) ======
 cli_alert_info("Truncating dbo.aemo_crc_lookup …")
-dbExecute(con, "TRUNCATE TABLE dbo.aemo_crc_lookup;")
+dbExecute(con_crc, "TRUNCATE TABLE dbo.aemo_crc_lookup;")
 
 cli_alert_info("Loading CRC lookup …")
-dbAppendTable(con, Id(schema = "dbo", table = "aemo_crc_lookup"), crc_tbl)
+dbAppendTable(con_crc, Id(schema = "dbo", table = "aemo_crc_lookup"), crc_tbl)
 
-n_crc <- dbGetQuery(con, "SELECT COUNT(*) AS n FROM dbo.aemo_crc_lookup;")$n
+n_crc <- dbGetQuery(con_crc, "SELECT COUNT(*) AS n FROM dbo.aemo_crc_lookup;")$n
 cli_alert_success("Reload complete → dbo.aemo_crc_lookup: {format(n_crc, big.mark = ',')} rows")
 
+DBI::dbDisconnect(con_crc)
 cli_alert_success("CRC lookup refresh successful.")

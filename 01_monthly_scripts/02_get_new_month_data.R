@@ -64,7 +64,7 @@ if (file.exists(checkpoint_path)) {
   
   completed <- read.csv(checkpoint_path, stringsAsFactors = FALSE)
   
-  completed_filenames <- completed$source_file |>
+  completed_filenames <- completed$source_file %>%
     trimws() |>     # remove whitespace
     tolower()       # ignore case
   

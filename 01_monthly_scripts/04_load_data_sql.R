@@ -92,8 +92,7 @@ transform_monthly <- function(df, source_file) {
 
 cli::cli_alert_info("Reading local CSV: {file_path}")
 raw_df <- readr::read_csv(file_path, col_types = cols(.default = col_character()),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 cli::cli_alert_info("Transforming data …")
 monthly_df <- transform_monthly(raw_df, source_file = source_name)
@@ -105,8 +104,7 @@ DBI::dbAppendTable(
   con,
   name       = tbl_id,
   value      = monthly_df,
-  batch_rows = min(50000L, rows_n)
-)
+  batch_rows = min(50000L, rows_n))
 
 cli::cli_alert_success("✓ Appended {rows_n} rows.")
 
@@ -132,16 +130,19 @@ if (nzchar(sharepoint_url) && nzchar(sharepoint_import_folder)) {
 # 6. Update checkpoint
 # ==============================================================================
 
-new_cp <- tibble(source_file = source_name)
+# Create a new checkpoint entry for the current file being processed
+new_cp <- tibble(source_file = tolower(trimws(source_name)))
 
-if (file_exists(checkpoint_path)) {
-  old_cp <- readr::read_csv(checkpoint_path, show_col_types = FALSE)
-  combined <- dplyr::bind_rows(old_cp, new_cp) %>%
-    dplyr::distinct(source_file, .keep_all = TRUE)
-  readr::write_csv(combined, checkpoint_path)
-} else {
-  readr::write_csv(new_cp, checkpoint_path)
-}
+# Read in the existing checkpoint file (list of already processed files)
+old_cp <- read_csv(checkpoint_path, show_col_types = FALSE)
+
+# Append the new entry to the existing checkpoint data
+# (we combine in memory because write_csv() overwrites rather than appends)
+combined <- bind_rows(old_cp, new_cp)
+
+# Overwrite the checkpoint file with the updated list
+# (this now includes both previous and newly processed files)
+write_csv(combined, checkpoint_path)
 
 cli::cli_alert_success("Monthly load complete. Checkpoint updated → {checkpoint_path}")
 
