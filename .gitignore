@@ -4,14 +4,21 @@
 .Ruserdata
 
 # Ignore specific data files/folders
+01_monthly_scripts/02_data/JUR_DATA_CSV_VIC*
+01_monthly_scripts/02_data/transfers_raw.rds
+01_monthly_scripts/02_data/snapshots/JUR_DATA_CSV_VIC*
+01_monthly_scripts/04_outputs/missing_ids
+
 02_data/JUR_DATA_CSV_VIC*
 02_data/transfers_raw.rds
 02_data/snapshots/JUR_DATA_CSV_VIC*
 00_mass_upload_scripts/data
-04_outputs/missing_ids
+
 archive/
 *.html
 
 # Keep folder structure
 !02_data/.gitkeep
 !04_outputs/.gitkeep
+!01_monthly_scripts/02_data/.gitkeep
+!01_monthly_scripts/04_outputs/.gitkeep
