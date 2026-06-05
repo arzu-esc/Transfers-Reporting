@@ -8,7 +8,8 @@
 # ====================================================
 
 source("01_config.R")
-source("03_load_data_sql.R")
+source("02_get_new_month_data.R")
+source("04_load_data_sql.R")
 source("05_read_updated_transfer_data.R")
 source("transfers_report.Rmd")
 

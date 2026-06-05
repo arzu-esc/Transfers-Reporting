@@ -190,7 +190,8 @@ This shows:
     
 4. Run script to Refresh SQL Lookup Table:
     
-```r 
+```r
+setwd("01_monthly_scripts")
 source("../03_lookup_changes/update_retailers_lookup.R")
 ```
 

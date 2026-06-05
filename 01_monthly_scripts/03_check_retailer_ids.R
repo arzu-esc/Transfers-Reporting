@@ -15,30 +15,20 @@
 # Last updated: 2025-11-25
 # ==============================================================================
 
+source("02_get_new_month_data.R")
+
 # ==============================================================================
-# 1. Get latest file from transfers_completed_files.csv
+# 1. Validate that 02_get_new_month_data.R ran
 # ==============================================================================
 
-completed_files_path <- file.path("05_checkpoints", "transfers_completed_files.csv")
-
-if (!file.exists(completed_files_path)) {
-  stop("transfers_completed_files.csv not found in 05_checkpoints/")
+if (!exists("new_data_file", envir = .GlobalEnv)) {
+  stop("new_data_file not found. Ensure 02_get_new_month_data.R was run first.")
 }
 
-completed_files <- read_csv(
-  completed_files_path,
-  col_types = cols(.default = col_character()),
-  show_col_types = FALSE)
+file_path   <- get("new_data_file", envir = .GlobalEnv)
+source_name <- basename(file_path)
 
-csv_path <- completed_files %>%
-  slice_tail(n = 1) %>%
-  pull(1)
-
-if (is.na(csv_path) || csv_path == "") {
-  stop("No file path found in transfers_completed_files.csv")
-}
-
-cli::cli_alert_info("Validating retailer IDs in monthly file: {csv_path}")
+cli::cli_alert_info("Loading file from 02_get_new_month_data.R → {source_name}")
 
 # ==============================================================================
 # 2. Read CSV
